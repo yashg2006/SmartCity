@@ -35,22 +35,39 @@ router.post('/data', async (req, res) => {
         const data = new SensorData(sensorPayload);
         await data.save();
 
+        const Incident = require('../models/Incident');
+
         // --- Alert Thresholds (tuned to real hardware) ---
-        // Bin full: distance < 8cm  |  Drain blocked: drainDistance < 5cm
+        // Bin full: distance < 8cm  |  Drain blocked: drainDistance > 50cm
         // Gas critical: MQ6 raw > 2200  |  Water: sensor HIGH
         const binFull = distance > 0 && distance < 8;
-        const drainBlock = drainDistance != null && drainDistance > 0 && drainDistance < 5;
+        const drainBlock = drainDistance != null && drainDistance > 50;
         const gasCrit = gasLevel > 2200;
         const waterAlert = waterStatus === 'OVERFLOW';
 
         if (binFull || drainBlock || gasCrit || waterAlert) {
-            let alertType = gasCrit ? 'GAS_CRITICAL' : waterAlert ? 'WATER_OVERFLOW' : binFull ? 'BIN_FULL' : 'DRAIN_BLOCKED';
-            let message = gasCrit ? `☣️ Gas critical at ${zone}: ${gasLevel} ADC`
+            const alertType = gasCrit ? 'GAS_CRITICAL' : waterAlert ? 'WATER_OVERFLOW' : binFull ? 'BIN_FULL' : 'DRAIN_BLOCKED';
+            const message = gasCrit ? `☣️ Gas critical at ${zone}: ${gasLevel} ADC`
                 : waterAlert ? `🌊 Water overflow at ${zone}`
                     : binFull ? `🗑️ Dustbin full at ${zone}: only ${distance}cm remaining`
-                        : `🚧 Drainage blocked at ${zone}: ${drainDistance}cm clearance`;
+                        : `🚧 Drainage critical at ${zone}: level exceeded 50cm (${drainDistance}cm)`;
 
-            io.emit('sensor:alert', { ...sensorPayload, alertType, message });
+            // Check for existing active incident of same type for this node
+            const existingIncident = await Incident.findOne({ nodeId, type: alertType, status: { $ne: 'RESOLVED' } });
+
+            if (!existingIncident) {
+                const newIncident = new Incident({
+                    nodeId,
+                    type: alertType,
+                    zone,
+                    details: { distance, drainDistance, gasLevel, waterStatus }
+                });
+                await newIncident.save();
+                io.emit('sensor:alert', { ...sensorPayload, alertType, message, incidentId: newIncident._id });
+            } else {
+                // Just update the existing alert info if needed, or emit update
+                io.emit('sensor:alert', { ...sensorPayload, alertType, message, incidentId: existingIncident._id });
+            }
         }
 
         res.status(201).json({ success: true, data: sensorPayload });
@@ -84,6 +101,51 @@ router.get('/nodes', async (req, res) => {
         res.json(nodes);
     } catch {
         res.json([]);
+    }
+});
+
+// GET /api/sensors/incidents — fetch active/dispatched incidents
+router.get('/incidents', async (req, res) => {
+    try {
+        const Incident = require('../models/Incident');
+        const incidents = await Incident.find({ status: { $ne: 'RESOLVED' } }).sort({ createdAt: -1 });
+        res.json(incidents);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch incidents' });
+    }
+});
+
+// POST /api/sensors/incidents/:id/dispatch — mark as dispatched
+router.post('/incidents/:id/dispatch', async (req, res) => {
+    try {
+        const Incident = require('../models/Incident');
+        const incident = await Incident.findByIdAndUpdate(
+            req.params.id,
+            { status: 'DISPATCHED', dispatchedAt: new Date() },
+            { new: true }
+        );
+        const io = req.app.get('io');
+        io.emit('incident:update', incident);
+        res.json(incident);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to dispatch crew' });
+    }
+});
+
+// POST /api/sensors/incidents/:id/resolve — mark as resolved
+router.post('/incidents/:id/resolve', async (req, res) => {
+    try {
+        const Incident = require('../models/Incident');
+        const incident = await Incident.findByIdAndUpdate(
+            req.params.id,
+            { status: 'RESOLVED', resolvedAt: new Date() },
+            { new: true }
+        );
+        const io = req.app.get('io');
+        io.emit('incident:update', incident);
+        res.json(incident);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to resolve incident' });
     }
 });
 

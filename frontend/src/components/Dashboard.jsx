@@ -1,9 +1,10 @@
 import XpBar from './XpBar'
 import SensorMap from './SensorMap'
 
-function getNodeStatus(node) {
-    if (node.gasLevel > 2200 || node.waterStatus === 'OVERFLOW') return 'critical'
-    if (node.gasLevel > 1100 || node.distance < 12) return 'warning'
+function getNodeStatus(node, incidents) {
+    const hasIncident = incidents && incidents.some(i => i.nodeId === node.nodeId)
+    if (hasIncident) return 'critical'
+    if (node.gasLevel > 1100 || (node.drainDistance && node.drainDistance > 30)) return 'warning'
     return 'healthy'
 }
 
@@ -22,11 +23,11 @@ function StatCard({ label, value, unit, icon, accent, trend }) {
     )
 }
 
-export default function Dashboard({ nodes, alerts, user }) {
+export default function Dashboard({ nodes, alerts, user, incidents = [] }) {
     const totalNodes = nodes.length
-    const criticalCount = nodes.filter(n => getNodeStatus(n) === 'critical').length
+    const criticalCount = incidents.length
     const avgGas = Math.round(nodes.reduce((s, n) => s + n.gasLevel, 0) / (totalNodes || 1))
-    const avgFill = Math.round(nodes.reduce((s, n) => s + (n.distance > 0 ? (100 - (n.distance / 50 * 100)) : 0), 0) / (totalNodes || 1))
+    const avgFill = Math.round(nodes.reduce((s, n) => s + (n.distance > 0 ? (Math.max(0, 50 - n.distance) / 50 * 100) : 0), 0) / (totalNodes || 1))
 
     return (
         <div>
@@ -98,7 +99,7 @@ export default function Dashboard({ nodes, alerts, user }) {
                     </div>
                     <div className="card-body">
                         {nodes.map(node => {
-                            const status = getNodeStatus(node)
+                            const status = getNodeStatus(node, incidents)
                             // Capacity calculation based on 50cm deep bin
                             const fillPct = Math.min(100, Math.max(0, Math.round(((50 - node.distance) / 50) * 100)))
                             const gasPct = Math.min(100, Math.round((node.gasLevel / 3000) * 100))
@@ -125,7 +126,7 @@ export default function Dashboard({ nodes, alerts, user }) {
                                         endColor={gasColor}
                                     />
                                     <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                        <span>💧 Drainage: <strong>{node.waterStatus}</strong></span>
+                                        <span>💧 Drainage: <strong style={{ color: node.drainDistance > 50 ? 'var(--gov-red)' : 'inherit' }}>{node.drainDistance || 0} cm</strong></span>
                                         <span>🔋 Power: <strong>{Math.round(node.batteryLevel)}%</strong></span>
                                     </div>
                                 </div>

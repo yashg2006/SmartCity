@@ -32,6 +32,7 @@ export default function App() {
     const [user, setUser] = useState(getStoredUser)   // null = not logged in
     const [activePage, setActivePage] = useState('dashboard')
     const [nodes, setNodes] = useState(INITIAL_NODES)
+    const [incidents, setIncidents] = useState([])
     const [alerts, setAlerts] = useState([])
     const [bossAlert, setBossAlert] = useState(null)
     const [toast, setToast] = useState(null)
@@ -54,6 +55,23 @@ export default function App() {
         setActivePage('dashboard')
     }
 
+    // Fetch initial nodes and incidents
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [nRes, iRes] = await Promise.all([
+                    fetch('http://localhost:5000/api/sensors/nodes'),
+                    fetch('http://localhost:5000/api/sensors/incidents')
+                ]);
+                const nodesData = await nRes.json();
+                const incidentsData = await iRes.json();
+                if (nodesData.length > 0) setNodes(nodesData);
+                setIncidents(incidentsData);
+            } catch (err) { console.error('Failed to fetch data', err); }
+        };
+        fetchData();
+    }, []);
+
     useEffect(() => {
         socket.on('connect', () => setConnected(true))
         socket.on('disconnect', () => setConnected(false))
@@ -73,6 +91,25 @@ export default function App() {
         socket.on('sensor:alert', (data) => {
             setBossAlert(data)
             setAlerts(prev => [data, ...prev].slice(0, 20))
+            // Refresh incidents when a new alert is received
+            fetch('http://localhost:5000/api/sensors/incidents')
+                .then(r => r.json())
+                .then(data => setIncidents(data))
+        })
+
+        socket.on('incident:update', (updatedIncident) => {
+            setIncidents(prev => {
+                const idx = prev.findIndex(i => i._id === updatedIncident._id)
+                if (updatedIncident.status === 'RESOLVED') {
+                    return prev.filter(i => i._id !== updatedIncident._id)
+                }
+                if (idx >= 0) {
+                    const next = [...prev]
+                    next[idx] = updatedIncident
+                    return next
+                }
+                return [updatedIncident, ...prev]
+            })
         })
 
         return () => socket.off()
@@ -96,15 +133,15 @@ export default function App() {
     // Show login page if not authenticated
     if (!user) return <Login onLogin={handleLogin} />
 
-    const alertCount = nodes.filter(n => n.gasLevel > 2200 || n.waterStatus === 'OVERFLOW').length
+    const alertCount = incidents.length
 
     const renderPage = () => {
         switch (activePage) {
-            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} />
+            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} incidents={incidents} />
             case 'leaderboard': return <Leaderboard />
-            case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} />
+            case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} incidents={incidents} />
             case 'apidocs': return <ApiDocs />
-            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} />
+            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} incidents={incidents} />
         }
     }
 
