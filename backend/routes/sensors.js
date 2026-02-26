@@ -35,8 +35,6 @@ router.post('/data', async (req, res) => {
         const data = new SensorData(sensorPayload);
         await data.save();
 
-        const Incident = require('../models/Incident');
-
         // --- Alert Thresholds (tuned to real hardware) ---
         // Bin full: distance < 8cm  |  Drain blocked: drainDistance > 50cm
         // Gas critical: MQ6 raw > 2200  |  Water: sensor HIGH
@@ -52,22 +50,7 @@ router.post('/data', async (req, res) => {
                     : binFull ? `🗑️ Dustbin full at ${zone}: only ${distance}cm remaining`
                         : `🚧 Drainage critical at ${zone}: level exceeded 50cm (${drainDistance}cm)`;
 
-            // Check for existing active incident of same type for this node
-            const existingIncident = await Incident.findOne({ nodeId, type: alertType, status: { $ne: 'RESOLVED' } });
-
-            if (!existingIncident) {
-                const newIncident = new Incident({
-                    nodeId,
-                    type: alertType,
-                    zone,
-                    details: { distance, drainDistance, gasLevel, waterStatus }
-                });
-                await newIncident.save();
-                io.emit('sensor:alert', { ...sensorPayload, alertType, message, incidentId: newIncident._id });
-            } else {
-                // Just update the existing alert info if needed, or emit update
-                io.emit('sensor:alert', { ...sensorPayload, alertType, message, incidentId: existingIncident._id });
-            }
+            io.emit('sensor:alert', { ...sensorPayload, alertType, message });
         }
 
         res.status(201).json({ success: true, data: sensorPayload });

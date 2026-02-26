@@ -133,15 +133,15 @@ export default function App() {
     // Show login page if not authenticated
     if (!user) return <Login onLogin={handleLogin} />
 
-    const alertCount = incidents.length
+    const alertCount = nodes.filter(n => n.gasLevel > 2200 || (n.drainDistance && n.drainDistance > 50) || n.waterStatus === 'OVERFLOW').length
 
     const renderPage = () => {
         switch (activePage) {
-            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} incidents={incidents} />
+            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} />
             case 'leaderboard': return <Leaderboard />
-            case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} incidents={incidents} />
+            case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} />
             case 'apidocs': return <ApiDocs />
-            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} incidents={incidents} />
+            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} />
         }
     }
 

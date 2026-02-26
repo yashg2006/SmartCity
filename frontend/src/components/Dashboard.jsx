@@ -1,10 +1,9 @@
 import XpBar from './XpBar'
 import SensorMap from './SensorMap'
 
-function getNodeStatus(node, incidents) {
-    const hasIncident = incidents && incidents.some(i => i.nodeId === node.nodeId)
-    if (hasIncident) return 'critical'
-    if (node.gasLevel > 1100 || (node.drainDistance && node.drainDistance > 30)) return 'warning'
+function getNodeStatus(node) {
+    if (node.gasLevel > 2200 || (node.drainDistance && node.drainDistance > 50) || node.waterStatus === 'OVERFLOW') return 'critical'
+    if (node.gasLevel > 1100 || (node.drainDistance && node.drainDistance > 25) || node.distance < 12) return 'warning'
     return 'healthy'
 }
 
@@ -99,7 +98,7 @@ export default function Dashboard({ nodes, alerts, user, incidents = [] }) {
                     </div>
                     <div className="card-body">
                         {nodes.map(node => {
-                            const status = getNodeStatus(node, incidents)
+                            const status = getNodeStatus(node)
                             // Capacity calculation based on 50cm deep bin
                             const fillPct = Math.min(100, Math.max(0, Math.round(((50 - node.distance) / 50) * 100)))
                             const gasPct = Math.min(100, Math.round((node.gasLevel / 3000) * 100))
