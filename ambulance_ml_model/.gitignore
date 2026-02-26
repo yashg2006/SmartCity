@@ -1,0 +1,68 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs, databases and caches
+*.log
+logs/
+*.sqlite3
+.pytest_cache/
+
+# Environment files
+.env
+.env.*
+
+# Model weights and large binaries
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+weights/
+model/*.pt
+model/*.pth
+
+# Datasets, media
+data/
+datasets/
+videos/
+*.mp4
+*.avi
+*.mov
+
+# Ultralytics / training outputs
+runs/
+results/
+exp/
+
+# Streamlit
+.streamlit/
+
+# macOS
+.DS_Store
+
+# Misc
+*.cache
+*.pickle
+*.pkl

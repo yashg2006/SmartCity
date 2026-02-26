@@ -1,0 +1,8 @@
+ultralytics
+opencv-python
+torch
+torchvision
+numpy
+lap>=0.5.12
+pyserial
+streamlit
