@@ -11,20 +11,30 @@ const SensorData = require('../models/SensorData');
 // http.POST(payload);
 router.post('/data', async (req, res) => {
     try {
+        const io = req.app.get('io');
         console.log('📥 Sensor Data Received:', req.body);
-        const { nodeId, zone, distance, drainDistance, gasLevel, waterStatus, lat, lng, batteryLevel } = req.body;
+        const {
+            nodeId, zone, distance, drainDistance, gasLevel, waterStatus, lat, lng, batteryLevel,
+            dustbin, drainage, gas, waterLeak
+        } = req.body;
 
-        // More permissive validation for debugging
+        // Map incoming keys from user's custom Arduino code to dashboard format
+        const finalDistance = dustbin !== undefined ? dustbin : (distance !== undefined ? distance : 0);
+        const finalDrainDist = drainage !== undefined ? drainage : (drainDistance !== undefined ? drainDistance : null);
+        const finalGas = gas !== undefined ? gas : (gasLevel !== undefined ? gasLevel : 0);
+        const finalWater = waterLeak === 'YES' ? 'OVERFLOW' : (waterStatus || 'NORMAL');
+
         const sensorPayload = {
             nodeId: nodeId || 'NODE-001',
-            zone: zone || 'Unknown Zone',
-            distance: distance !== undefined ? distance : 0,
-            drainDistance: drainDistance !== undefined ? drainDistance : null,
-            gasLevel: gasLevel !== undefined ? gasLevel : 0,
-            waterStatus: waterStatus || 'NORMAL',
-            lat: lat || null,
-            lng: lng || null,
+            zone: zone || 'Sector 4A',
+            distance: finalDistance,
+            drainDistance: finalDrainDist,
+            gasLevel: finalGas,
+            waterStatus: finalWater,
+            lat: lat || 12.9716,
+            lng: lng || 77.5946,
             batteryLevel: batteryLevel || 100,
+            isHardware: true,
             timestamp: new Date().toISOString()
         };
 
@@ -66,10 +76,17 @@ router.post('/data', async (req, res) => {
 // GET /api/sensors/latest — last 50 readings
 router.get('/latest', async (req, res) => {
     try {
-        const data = await SensorData.find().sort({ timestamp: -1 }).limit(50);
+        const filter = {};
+        if (req.query.isHardware === 'true') {
+            filter.isHardware = true;
+        } else if (req.query.nodeId) {
+            filter.nodeId = req.query.nodeId;
+        }
+
+        const data = await SensorData.find(filter).sort({ timestamp: -1 }).limit(50);
         res.json(data);
-    } catch {
-        res.json([]);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch sensor history' });
     }
 });
 

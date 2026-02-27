@@ -37,6 +37,7 @@ export default function App() {
     const [bossAlert, setBossAlert] = useState(null)
     const [toast, setToast] = useState(null)
     const [connected, setConnected] = useState(false)
+    const [history, setHistory] = useState([])
 
     const showToast = useCallback((title, body, type = 'success') => {
         setToast({ title, body, type })
@@ -55,18 +56,21 @@ export default function App() {
         setActivePage('dashboard')
     }
 
-    // Fetch initial nodes and incidents
+    // Fetch initial nodes, incidents, and history
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [nRes, iRes] = await Promise.all([
+                const [nRes, iRes, hRes] = await Promise.all([
                     fetch('http://localhost:5000/api/sensors/nodes'),
-                    fetch('http://localhost:5000/api/sensors/incidents')
+                    fetch('http://localhost:5000/api/sensors/incidents'),
+                    fetch('http://localhost:5000/api/sensors/latest?isHardware=true')
                 ]);
                 const nodesData = await nRes.json();
                 const incidentsData = await iRes.json();
+                const historyData = await hRes.json();
                 if (nodesData.length > 0) setNodes(nodesData);
                 setIncidents(incidentsData);
+                setHistory(historyData);
             } catch (err) { console.error('Failed to fetch data', err); }
         };
         fetchData();
@@ -86,6 +90,11 @@ export default function App() {
                 }
                 return [...prev, data]
             })
+
+            // Update history if it's hardware data
+            if (data.isHardware) {
+                setHistory(prev => [data, ...prev].slice(0, 50))
+            }
         })
 
         socket.on('sensor:alert', (data) => {
@@ -137,11 +146,11 @@ export default function App() {
 
     const renderPage = () => {
         switch (activePage) {
-            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} />
+            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} />
             case 'leaderboard': return <Leaderboard />
             case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} />
             case 'apidocs': return <ApiDocs />
-            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} />
+            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} />
         }
     }
 
