@@ -1,12 +1,5 @@
-import { useState, useEffect } from 'react'
-import XpBar from './XpBar'
+import { useState } from 'react'
 import SensorMap from './SensorMap'
-
-function getNodeStatus(node) {
-    if (node.gasLevel > 2200 || (node.drainDistance && node.drainDistance > 50) || node.waterStatus === 'OVERFLOW') return 'critical'
-    if (node.gasLevel > 1100 || (node.drainDistance && node.drainDistance > 25) || node.distance < 12) return 'warning'
-    return 'healthy'
-}
 
 function StatCard({ label, value, unit, icon, accent, trend }) {
     return (
@@ -23,27 +16,11 @@ function StatCard({ label, value, unit, icon, accent, trend }) {
     )
 }
 
-export default function Dashboard({ nodes, alerts, user, incidents = [], history = [] }) {
+const PIPE_DEPTH = 30
+const BIN_DEPTH = 50
+
+export default function Dashboard({ nodes, alerts, user, incidents = [], history = [], connected }) {
     const [selectedBlog, setSelectedBlog] = useState(null)
-    const [isVirtualEnabled, setIsVirtualEnabled] = useState(true)
-
-    // Sync system status on load
-    useEffect(() => {
-        fetch('http://localhost:5000/api/systems/status')
-            .then(res => res.json())
-            .then(data => setIsVirtualEnabled(data.virtualNetwork))
-            .catch(() => { });
-    }, [])
-
-    const toggleVirtualNetwork = async () => {
-        try {
-            const res = await fetch('http://localhost:5000/api/systems/toggle-virtual', { method: 'POST' })
-            const data = await res.json()
-            setIsVirtualEnabled(data.enabled)
-        } catch (e) {
-            console.error('Failed to toggle virtual network')
-        }
-    }
 
     const blogContent = {
         'waste-segregation': {
@@ -66,17 +43,27 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
         }
     }
 
+    // Find active hardware node
+    const activeNode = nodes.find(n => n.zone === 'Sector 4A' || n.nodeId === 'NODE-001') || null
+
+    // Drainage summary
+    const drainDistance = activeNode?.drainDistance
+    const waterLevel = drainDistance != null ? Math.max(0, PIPE_DEPTH - drainDistance) : null
+    const flowStatus = activeNode?.waterStatus === 'DRY' ? 'No Flow' : activeNode?.waterStatus === 'OVERFLOW' ? 'Overflow!' : activeNode ? 'Flowing' : 'Offline'
+
+    // Bin summary
+    const binDistance = activeNode?.distance
+    const binFillPct = binDistance != null && binDistance > 0 ? Math.max(0, Math.min(100, Math.round(((BIN_DEPTH - binDistance) / BIN_DEPTH) * 100))) : null
+
     const totalNodes = nodes.length
     const criticalCount = incidents.length
-    const avgGas = Math.round(nodes.reduce((s, n) => s + n.gasLevel, 0) / (totalNodes || 1))
-    const avgFill = Math.round(nodes.reduce((s, n) => s + (n.distance > 0 ? (Math.max(0, 50 - n.distance) / 50 * 100) : 0), 0) / (totalNodes || 1))
 
     return (
         <div>
             <div className="breadcrumb">
                 <span>Home</span>
                 <span className="breadcrumb-sep">/</span>
-                <span className="breadcrumb-current">Monitoring Dashboard</span>
+                <span className="breadcrumb-current">System Overview</span>
             </div>
 
             <div className="page-header">
@@ -85,21 +72,11 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
                     <p className="page-subtitle">Department of Urban Planning · Live Infrastructure Status</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <button
-                        onClick={toggleVirtualNetwork}
-                        className={`status-chip ${isVirtualEnabled ? 'live' : 'warning'}`}
-                        style={{
-                            cursor: 'pointer',
-                            border: '1px solid currentColor',
-                            background: 'transparent',
-                            fontSize: '10px',
-                            padding: '4px 10px',
-                            transition: 'all 0.3s ease'
-                        }}
-                    >
-                        {isVirtualEnabled ? '📡 BASELINE FEED: ON' : '📴 BASELINE FEED: OFF'}
-                    </button>
-                    <span className="status-chip live">● LIVE SYSTEM</span>
+                    {connected ? (
+                        <span className="status-chip live">● LIVE SYSTEM</span>
+                    ) : (
+                        <span className="status-chip warning">⏳ AWAITING HARDWARE</span>
+                    )}
                     {criticalCount > 0 && (
                         <span className="status-chip critical">⚠ {criticalCount} ALERTS</span>
                     )}
@@ -108,34 +85,33 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
 
             <div className="stats-grid">
                 <StatCard
-                    label="Total Sensor Nodes"
+                    label="Active Sensors"
                     value={totalNodes}
                     icon="📡"
                     accent="var(--gov-blue)"
-                    trend={{ text: 'All units stable', dir: 'up' }}
+                    trend={{ text: totalNodes > 0 ? 'Hardware connected' : 'No sensors', dir: totalNodes > 0 ? 'up' : '' }}
                 />
                 <StatCard
-                    label="Critical Hazards"
+                    label="Water Flow"
+                    value={flowStatus}
+                    icon="💧"
+                    accent={flowStatus === 'No Flow' ? 'var(--gov-red)' : flowStatus === 'Overflow!' ? 'var(--gov-red)' : 'var(--gov-green)'}
+                    trend={{ text: waterLevel != null ? `Level: ${waterLevel}cm` : 'No data', dir: flowStatus === 'Flowing' ? 'up' : 'down' }}
+                />
+                <StatCard
+                    label="Bin Fill Level"
+                    value={binFillPct != null ? binFillPct : '—'}
+                    unit={binFillPct != null ? '%' : ''}
+                    icon="🗑️"
+                    accent={binFillPct != null ? (binFillPct > 85 ? 'var(--gov-red)' : binFillPct > 65 ? 'var(--gov-amber)' : 'var(--gov-green)') : 'var(--text-muted)'}
+                    trend={{ text: binFillPct != null ? (binFillPct > 85 ? 'Overflow risk!' : 'Normal') : 'No data', dir: binFillPct > 85 ? 'down' : 'up' }}
+                />
+                <StatCard
+                    label="Active Alerts"
                     value={criticalCount}
                     icon="🚨"
                     accent={criticalCount > 0 ? 'var(--gov-red)' : 'var(--gov-green)'}
-                    trend={{ text: criticalCount > 0 ? 'Attention required' : 'Clear', dir: criticalCount > 0 ? 'down' : 'up' }}
-                />
-                <StatCard
-                    label="Avg Gas Concentration"
-                    value={avgGas}
-                    unit="ppm"
-                    icon="☣️"
-                    accent={avgGas > 1500 ? 'var(--gov-amber)' : 'var(--gov-blue)'}
-                    trend={{ text: 'Normal range', dir: '' }}
-                />
-                <StatCard
-                    label="System Health"
-                    value="98.4"
-                    unit="%"
-                    icon="⚙️"
-                    accent="var(--gov-green)"
-                    trend={{ text: 'Uptime target met', dir: 'up' }}
+                    trend={{ text: criticalCount > 0 ? 'Attention needed' : 'All clear', dir: criticalCount > 0 ? 'down' : 'up' }}
                 />
             </div>
 
@@ -151,60 +127,70 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
 
                 <div className="card">
                     <div className="card-header">
-                        <h3 className="card-title">⚡ Real-time Telemetry</h3>
+                        <h3 className="card-title">⚡ System Status</h3>
                     </div>
                     <div className="card-body">
-                        {nodes.map(node => {
-                            const status = getNodeStatus(node)
-                            // Capacity calculation based on 50cm deep bin
-                            const fillPct = Math.min(100, Math.max(0, Math.round(((50 - node.distance) / 50) * 100)))
-                            const gasPct = Math.min(100, Math.round((node.gasLevel / 3000) * 100))
-
-                            const binColor = fillPct > 85 ? 'var(--gov-red)' : fillPct > 65 ? 'var(--gov-amber)' : 'var(--gov-green)'
-                            const gasColor = gasPct > 75 ? 'var(--gov-red)' : gasPct > 40 ? 'var(--gov-amber)' : 'var(--gov-blue)'
-
-                            return (
-                                <div key={node.nodeId} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--gov-blue)' }}>{node.nodeId} · {node.zone}</span>
-                                            {node.isHardware && (
-                                                <span style={{ fontSize: 9, fontWeight: 800, color: '#4ade80', letterSpacing: '0.05em' }}>⚡ REAL-TIME HARDWARE</span>
-                                            )}
+                        {activeNode ? (
+                            <div>
+                                <div style={{ marginBottom: 20, padding: 16, borderRadius: 'var(--radius-md)', background: '#f1f8e9', border: '1px solid #dcedc8' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--gov-blue)' }}>{activeNode.nodeId} · {activeNode.zone}</span>
+                                        {activeNode.isHardware && (
+                                            <span style={{ fontSize: 9, fontWeight: 800, color: '#4ade80', letterSpacing: '0.05em' }}>⚡ REAL-TIME HARDWARE</span>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 12 }}>
+                                        <div>
+                                            <span style={{ color: 'var(--text-muted)' }}>💧 Water:</span>{' '}
+                                            <strong style={{ color: activeNode.waterStatus === 'DRY' ? 'var(--gov-red)' : 'var(--gov-green)' }}>
+                                                {activeNode.waterStatus}
+                                            </strong>
                                         </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                            <span className={`status-chip ${status}`}>{status.toUpperCase()}</span>
-                                            {node.timestamp && (
-                                                <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
-                                                    Last Synced: {new Date(node.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                                </span>
-                                            )}
+                                        <div>
+                                            <span style={{ color: 'var(--text-muted)' }}>📏 Drain Dist:</span>{' '}
+                                            <strong>{activeNode.drainDistance ?? 'N/A'} cm</strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ color: 'var(--text-muted)' }}>🗑️ Bin Dist:</span>{' '}
+                                            <strong>{activeNode.distance} cm</strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ color: 'var(--text-muted)' }}>🔋 Battery:</span>{' '}
+                                            <strong>{Math.round(activeNode.batteryLevel)}%</strong>
                                         </div>
                                     </div>
-                                    <XpBar
-                                        label="Bin Capacity"
-                                        value={fillPct}
-                                        startColor={binColor}
-                                        endColor={binColor}
-                                    />
-                                    <XpBar
-                                        label="Hazard Gas Level"
-                                        value={gasPct}
-                                        startColor={gasColor}
-                                        endColor={gasColor}
-                                    />
-                                    <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                        <span>💧 Drainage: <strong style={{ color: node.drainDistance > 50 ? 'var(--gov-red)' : 'inherit' }}>{node.drainDistance || 0} cm</strong></span>
-                                        <span>🔋 Power: <strong>{Math.round(node.batteryLevel)}%</strong></span>
+                                    {activeNode.timestamp && (
+                                        <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)' }}>
+                                            Last synced: {new Date(activeNode.timestamp).toLocaleString()}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Quick navigation */}
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 16 }}>
+                                    <strong>Quick Navigation:</strong>
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                        <span style={{ padding: '6px 12px', background: '#e3f2fd', borderRadius: 'var(--radius-sm)', cursor: 'default', fontSize: 11, fontWeight: 600 }}>
+                                            💧 Water Drainage → Sidebar
+                                        </span>
+                                        <span style={{ padding: '6px 12px', background: '#fff3e0', borderRadius: 'var(--radius-sm)', cursor: 'default', fontSize: 11, fontWeight: 600 }}>
+                                            🗑️ Garbage Detection → Sidebar
+                                        </span>
                                     </div>
                                 </div>
-                            )
-                        })}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: 40 }}>
+                                <div style={{ fontSize: 36, marginBottom: 12 }}>📡</div>
+                                <h4 style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>No Hardware Connected</h4>
+                                <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>Connect your ESP32 sensors to see real-time data here.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* --- NEW SECTION: Awareness Blog --- */}
+            {/* --- Awareness Blog --- */}
             <div className="card" style={{ marginTop: 24, border: 'none', background: 'transparent', boxShadow: 'none' }}>
                 <div className="page-header" style={{ marginBottom: 16, borderBottom: 'none', paddingBottom: 0 }}>
                     <div>
@@ -237,8 +223,8 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
                         <div className="blog-card-body">
                             <span className="blog-category">Infrastructure</span>
                             <h4 className="blog-title">Predictive Drainage Monitoring</h4>
-                            <p className="blog-text">How our ultrasonic network prevents urban flooding by identifying blockages 50% faster than manual checks.</p>
-                            <span className="blog-link">View tech Specs →</span>
+                            <p className="blog-text">How our ultrasonic network prevents urban flooding by identifying blockages faster than manual checks.</p>
+                            <span className="blog-link">View tech specs →</span>
                         </div>
                     </div>
 
@@ -270,52 +256,7 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
                             <p style={{ lineHeight: '1.8', color: 'var(--text-secondary)', fontSize: '15px' }}>
                                 {blogContent[selectedBlog].text}
                             </p>
-                            <div style={{ marginTop: '30px', padding: '15px', background: 'var(--gov-blue-light)', borderRadius: '10px', fontSize: '13px', color: 'var(--gov-blue-mid)', fontWeight: '600' }}>
-                                💡 Judge Tip: This demo content can be linked to your local SQL/MongoDB blog database in a production environment.
-                            </div>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- SECTION: Real-Time Hardware Logs --- */}
-            {history.length > 0 && (
-                <div className="card" style={{ marginTop: 24 }}>
-                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3 className="card-title">📜 Real-Time Hardware Logs (Last 50 Readings)</h3>
-                        <span style={{ fontSize: 11, color: 'var(--gov-blue)', fontWeight: 600 }}>⚡ LIVE FROM ESP32</span>
-                    </div>
-                    <div className="card-body" style={{ overflowX: 'auto' }}>
-                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead>
-                                <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
-                                    <th style={{ padding: '12px 8px' }}>Timestamp</th>
-                                    <th style={{ padding: '12px 8px' }}>Node</th>
-                                    <th style={{ padding: '12px 8px' }}>Bin Dist (cm)</th>
-                                    <th style={{ padding: '12px 8px' }}>Drain Dist (cm)</th>
-                                    <th style={{ padding: '12px 8px' }}>Gas (ppm)</th>
-                                    <th style={{ padding: '12px 8px' }}>Water</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {history.map((log, i) => (
-                                    <tr key={log.timestamp + i} style={{ borderBottom: '1px solid var(--border-color)', opacity: 1 - (i * 0.015) }}>
-                                        <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>
-                                            {new Date(log.timestamp).toLocaleTimeString()}
-                                        </td>
-                                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{log.nodeId}</td>
-                                        <td style={{ padding: '10px 8px' }}>{log.distance}</td>
-                                        <td style={{ padding: '10px 8px' }}>{log.drainDistance ?? 'N/A'}</td>
-                                        <td style={{ padding: '10px 8px' }}>{log.gasLevel}</td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <span className={`status-chip ${log.waterStatus === 'OVERFLOW' ? 'critical' : 'healthy'}`} style={{ fontSize: 10 }}>
-                                                {log.waterStatus}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
                     </div>
                 </div>
             )}

@@ -1,14 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const SensorData = require('../models/SensorData');
+const GarbageReport = require('../models/GarbageReport');
 
 // POST /api/sensors/data — ESP32 sends data here
-// Example Arduino/ESP32 code:
-// HTTPClient http;
-// http.begin("http://YOUR_SERVER_IP:5000/api/sensors/data");
-// http.addHeader("Content-Type", "application/json");
-// String payload = "{\"nodeId\":\"NODE-001\",\"zone\":\"Sector 4A\",\"distance\":" + String(distance) + ",\"gasLevel\":" + String(gasLevel) + ",\"waterStatus\":\"NORMAL\",\"lat\":12.9716,\"lng\":77.5946}";
-// http.POST(payload);
 router.post('/data', async (req, res) => {
     try {
         const io = req.app.get('io');
@@ -18,11 +13,23 @@ router.post('/data', async (req, res) => {
             dustbin, drainage, gas, waterLeak
         } = req.body;
 
-        // Map incoming keys from user's custom Arduino code to dashboard format
+        // Map incoming keys from Arduino code to dashboard format
         const finalDistance = dustbin !== undefined ? dustbin : (distance !== undefined ? distance : 0);
         const finalDrainDist = drainage !== undefined ? drainage : (drainDistance !== undefined ? drainDistance : null);
         const finalGas = gas !== undefined ? gas : (gasLevel !== undefined ? gasLevel : 0);
-        const finalWater = waterLeak === 'YES' ? 'OVERFLOW' : (waterStatus || 'NORMAL');
+
+        // Water sensor logic:
+        // waterLeak='YES' or waterStatus='OVERFLOW' → water overflowing
+        // waterLeak='DRY' or waterStatus='DRY' → no water flow (pipe dry)
+        // else → NORMAL (water flowing normally)
+        let finalWater = 'NORMAL';
+        if (waterLeak === 'YES' || waterStatus === 'OVERFLOW') {
+            finalWater = 'OVERFLOW';
+        } else if (waterLeak === 'DRY' || waterStatus === 'DRY') {
+            finalWater = 'DRY';
+        } else {
+            finalWater = waterStatus || 'NORMAL';
+        }
 
         const sensorPayload = {
             nodeId: nodeId || 'NODE-001',
@@ -45,20 +52,30 @@ router.post('/data', async (req, res) => {
         const data = new SensorData(sensorPayload);
         await data.save();
 
-        // --- Alert Thresholds (tuned to real hardware) ---
-        // Bin full: distance < 8cm  |  Drain blocked: drainDistance > 50cm
-        // Gas critical: MQ6 raw > 2200  |  Water: sensor HIGH
-        const binFull = distance > 0 && distance < 8;
-        const drainBlock = drainDistance != null && drainDistance > 50;
-        const gasCrit = gasLevel > 2200;
-        const waterAlert = waterStatus === 'OVERFLOW';
+        // --- Alert Thresholds ---
+        // Bin full: distance < 8cm (ultrasonic on lid, close = full)
+        // Water dry: waterStatus DRY = no flow = potential blockage
+        // Drain high water: drainDistance < 5cm = water very close to sensor = pipe nearly full
+        const binFull = finalDistance > 0 && finalDistance < 8;
+        const waterDry = finalWater === 'DRY';
+        const drainHigh = finalDrainDist != null && finalDrainDist < 5;
+        const waterOverflow = finalWater === 'OVERFLOW';
 
-        if (binFull || drainBlock || gasCrit || waterAlert) {
-            const alertType = gasCrit ? 'GAS_CRITICAL' : waterAlert ? 'WATER_OVERFLOW' : binFull ? 'BIN_FULL' : 'DRAIN_BLOCKED';
-            const message = gasCrit ? `☣️ Gas critical at ${zone}: ${gasLevel} ADC`
-                : waterAlert ? `🌊 Water overflow at ${zone}`
-                    : binFull ? `🗑️ Dustbin full at ${zone}: only ${distance}cm remaining`
-                        : `🚧 Drainage critical at ${zone}: level exceeded 50cm (${drainDistance}cm)`;
+        if (binFull || waterDry || drainHigh || waterOverflow) {
+            let alertType, message;
+            if (waterOverflow) {
+                alertType = 'WATER_OVERFLOW';
+                message = `🌊 Water overflow at ${sensorPayload.zone}`;
+            } else if (waterDry) {
+                alertType = 'WATER_DRY';
+                message = `⚠️ No water flow detected at ${sensorPayload.zone} — potential blockage`;
+            } else if (drainHigh) {
+                alertType = 'DRAIN_HIGH';
+                message = `🚧 High water level in drainage at ${sensorPayload.zone}: ${finalDrainDist}cm from sensor`;
+            } else {
+                alertType = 'BIN_FULL';
+                message = `🗑️ Dustbin nearly full at ${sensorPayload.zone}: only ${finalDistance}cm remaining`;
+            }
 
             io.emit('sensor:alert', { ...sensorPayload, alertType, message });
         }
@@ -146,6 +163,61 @@ router.post('/incidents/:id/resolve', async (req, res) => {
         res.json(incident);
     } catch (err) {
         res.status(500).json({ error: 'Failed to resolve incident' });
+    }
+});
+
+// POST /api/sensors/report — citizen garbage image report
+router.post('/report', async (req, res) => {
+    try {
+        const { imageData, location, description, reportedBy } = req.body;
+
+        if (!imageData || !location) {
+            return res.status(400).json({ error: 'Image and location are required' });
+        }
+
+        const report = new GarbageReport({
+            imageData,
+            location,
+            description: description || '',
+            reportedBy: reportedBy || 'Citizen',
+            status: 'PENDING'
+        });
+
+        await report.save();
+
+        // Notify municipal dashboard
+        const io = req.app.get('io');
+        io.emit('garbage:report', {
+            _id: report._id,
+            location: report.location,
+            description: report.description,
+            status: report.status,
+            reportedBy: report.reportedBy,
+            createdAt: report.createdAt
+        });
+
+        res.status(201).json({ success: true, reportId: report._id });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to submit report' });
+    }
+});
+
+// GET /api/sensors/reports — fetch all garbage reports
+router.get('/reports', async (req, res) => {
+    try {
+        const reports = await GarbageReport.find().sort({ createdAt: -1 }).limit(50);
+        // Don't send full image data in list view to save bandwidth
+        const lightReports = reports.map(r => ({
+            _id: r._id,
+            location: r.location,
+            description: r.description,
+            status: r.status,
+            reportedBy: r.reportedBy,
+            createdAt: r.createdAt
+        }));
+        res.json(lightReports);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch reports' });
     }
 });
 

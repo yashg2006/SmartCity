@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { io } from 'socket.io-client'
+import { API_URL } from './config'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import Leaderboard from './components/Leaderboard'
@@ -9,16 +10,12 @@ import BossAlert from './components/BossAlert'
 import Toast from './components/Toast'
 import Login from './components/Login'
 import TopHeader from './components/TopHeader'
+import WaterDrainage from './components/WaterDrainage'
+import GarbageDetection from './components/GarbageDetection'
 
-const socket = io('http://localhost:5000', { autoConnect: true })
+const socket = io(API_URL, { autoConnect: true })
 
-const INITIAL_NODES = [
-    { nodeId: 'NODE-001', zone: 'Sector 4A', lat: 12.9716, lng: 77.5946, distance: 42, gasLevel: 380, waterStatus: 'NORMAL', batteryLevel: 87 },
-    { nodeId: 'NODE-002', zone: 'Sector 7B', lat: 12.9785, lng: 77.6408, distance: 78, gasLevel: 1200, waterStatus: 'NORMAL', batteryLevel: 73 },
-    { nodeId: 'NODE-003', zone: 'Sector 2C', lat: 12.9352, lng: 77.6146, distance: 91, gasLevel: 2450, waterStatus: 'OVERFLOW', batteryLevel: 62 },
-    { nodeId: 'NODE-004', zone: 'Sector 9D', lat: 13.0012, lng: 77.5953, distance: 25, gasLevel: 520, waterStatus: 'NORMAL', batteryLevel: 91 },
-    { nodeId: 'NODE-005', zone: 'Sector 3F', lat: 12.9565, lng: 77.7011, distance: 56, gasLevel: 880, waterStatus: 'NORMAL', batteryLevel: 78 },
-]
+const INITIAL_NODES = []
 
 // ── Restore auth from localStorage ────────────────────────
 function getStoredUser() {
@@ -61,9 +58,9 @@ export default function App() {
         const fetchData = async () => {
             try {
                 const [nRes, iRes, hRes] = await Promise.all([
-                    fetch('http://localhost:5000/api/sensors/nodes'),
-                    fetch('http://localhost:5000/api/sensors/incidents'),
-                    fetch('http://localhost:5000/api/sensors/latest?isHardware=true')
+                    fetch(`${API_URL}/api/sensors/nodes`),
+                    fetch(`${API_URL}/api/sensors/incidents`),
+                    fetch(`${API_URL}/api/sensors/latest?isHardware=true`)
                 ]);
                 const nodesData = await nRes.json();
                 const incidentsData = await iRes.json();
@@ -101,7 +98,7 @@ export default function App() {
             setBossAlert(data)
             setAlerts(prev => [data, ...prev].slice(0, 20))
             // Refresh incidents when a new alert is received
-            fetch('http://localhost:5000/api/sensors/incidents')
+            fetch(`${API_URL}/api/sensors/incidents`)
                 .then(r => r.json())
                 .then(data => setIncidents(data))
         })
@@ -124,33 +121,27 @@ export default function App() {
         return () => socket.off()
     }, [])
 
-    // Local simulation for offline mode
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (!connected) {
-                setNodes(prev => prev.map(node => ({
-                    ...node,
-                    distance: Math.min(100, Math.max(5, node.distance + (Math.random() - 0.48) * 4)),
-                    gasLevel: Math.max(100, node.gasLevel + (Math.random() - 0.45) * 70),
-                    batteryLevel: Math.max(10, node.batteryLevel - Math.random() * 0.03)
-                })))
-            }
-        }, 2500)
-        return () => clearInterval(interval)
-    }, [connected])
+    // No simulation — only real hardware data is used
 
     // Show login page if not authenticated
     if (!user) return <Login onLogin={handleLogin} />
 
-    const alertCount = nodes.filter(n => n.gasLevel > 2200 || (n.drainDistance && n.drainDistance > 50) || n.waterStatus === 'OVERFLOW').length
+    const alertCount = nodes.filter(n =>
+        (n.drainDistance != null && n.drainDistance < 5) ||
+        n.waterStatus === 'OVERFLOW' ||
+        n.waterStatus === 'DRY' ||
+        (n.distance > 0 && n.distance < 8)
+    ).length
 
     const renderPage = () => {
         switch (activePage) {
-            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} />
+            case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} connected={connected} />
+            case 'drainage': return <WaterDrainage nodes={nodes} history={history} connected={connected} />
+            case 'garbage': return <GarbageDetection nodes={nodes} history={history} connected={connected} showToast={showToast} user={user} />
             case 'leaderboard': return <Leaderboard />
             case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} />
             case 'apidocs': return <ApiDocs />
-            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} />
+            default: return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} connected={connected} />
         }
     }
 

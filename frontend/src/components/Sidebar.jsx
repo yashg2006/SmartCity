@@ -1,8 +1,10 @@
 export default function Sidebar({ activePage, setActivePage, connected, alertCount, user, onLogout }) {
     const navItems = [
-        { id: 'dashboard', icon: '📊', label: 'Monitor Dashboard', section: 'CORE SERVICES' },
-        { id: 'leaderboard', icon: '🏆', label: 'Citizen Rankings', section: null },
+        { id: 'dashboard', icon: '📊', label: 'Overview', section: 'CORE' },
+        { id: 'drainage', icon: '💧', label: 'Water Drainage', section: 'MONITORING' },
+        { id: 'garbage', icon: '🗑️', label: 'Garbage Detection', section: null },
         { id: 'municipal', icon: '🏢', label: 'Field Operations', section: 'MANAGEMENT', badge: alertCount > 0 ? alertCount : null },
+        { id: 'leaderboard', icon: '🏆', label: 'Citizen Rankings', section: null },
         { id: 'apidocs', icon: '📖', label: 'Technical Docs', section: 'DEVELOPER' },
     ]
 
@@ -48,7 +50,7 @@ export default function Sidebar({ activePage, setActivePage, connected, alertCou
             <div className="sidebar-footer">
                 <div className="sidebar-status">
                     <span className="status-dot" style={{ background: connected ? '#4ade80' : '#f59e0b' }} />
-                    {connected ? 'Live Network' : 'Simulation Mode'}
+                    {connected ? 'Live Network' : 'Awaiting Hardware'}
                 </div>
                 <div style={{ marginTop: 12, fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>
                     Digital India Initiative

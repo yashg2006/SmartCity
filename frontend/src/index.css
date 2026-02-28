@@ -1330,3 +1330,96 @@ body {
     opacity: 1;
   }
 }
+
+/* === SECTOR SELECTION GRID === */
+.sector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sector-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--surface-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  font-family: var(--font-body);
+}
+
+.sector-card:hover:not(.disabled) {
+  border-color: var(--gov-blue);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.sector-card.active {
+  border-color: var(--gov-blue);
+  background: var(--gov-blue-light);
+  box-shadow: 0 0 0 3px rgba(124, 179, 66, 0.15);
+}
+
+.sector-card.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #fafafa;
+  border-style: dashed;
+}
+
+.sector-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sector-name {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sector-location {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* === IMAGE UPLOAD AREA === */
+.image-upload-area {
+  width: 100%;
+  min-height: 160px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  background: var(--surface-input);
+}
+
+.image-upload-area:hover {
+  border-color: var(--gov-blue);
+  background: var(--gov-blue-light);
+}
+
+/* === RESPONSIVE for new sections === */
+@media (max-width: 768px) {
+  .sector-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .sector-grid {
+    grid-template-columns: 1fr;
+  }
+}
