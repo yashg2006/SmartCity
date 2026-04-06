@@ -1,124 +1,106 @@
-import { useEffect, useRef } from 'react'
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import L from 'leaflet'
 
-function getNodeColor(node) {
-    if (node.gasLevel > 2000 || node.waterStatus === 'OVERFLOW') return '#ff2d55'
-    if (node.gasLevel > 1000 || node.distance > 75) return '#ffb800'
-    return '#00ff88'
+// Helper to center map if nodes change (optional)
+function ChangeView({ center, zoom }) {
+  const map = useMap();
+  map.setView(center, zoom);
+  return null;
 }
 
-// SVG-based sensor map (no external map dependencies for offline mode)
-export default function SensorMap({ nodes }) {
-    const containerRef = useRef(null)
+function getNodeColor(node) {
+    if (node.waterStatus === 'OVERFLOW' || node.gasLevel > 2000) return '#d32f2f' // --gov-red
+    if (node.waterStatus === 'DRY' || node.distance < 8 || (node.drainDistance != null && node.drainDistance < 5)) return '#F57C00' // --gov-amber
+    return '#558B2F' // --gov-green
+}
 
-    // These represent a simplified city grid layout (not real geo)
-    const mapNodes = nodes.map((n, i) => ({
+const VIT_CHENNAI_COORDS = [12.8406, 80.1534];
+
+export default function SensorMap({ nodes }) {
+    // Ensure nodes have coordinates or use default around VIT
+    const validNodes = nodes.map((n, i) => ({
         ...n,
-        // Spread nodes in a grid-like pattern on a 400x320 canvas
-        x: 60 + (i % 3) * 130 + (Math.floor(i / 3) * 30),
-        y: 60 + Math.floor(i / 3) * 130 + (i % 2) * 20,
-        color: getNodeColor(n),
+        position: [
+            n.lat || (VIT_CHENNAI_COORDS[0] + (i * 0.001) - 0.001), 
+            n.lng || (VIT_CHENNAI_COORDS[1] + (i * 0.001) - 0.001)
+        ],
+        color: getNodeColor(n)
     }))
 
     return (
-        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', position: 'relative' }}>
-            <div className="map-overlay-header">
-                <span className="map-badge">📍 SENSOR NETWORK MAP</span>
-                <span className="map-badge" style={{ color: 'var(--color-neon-green)' }}>● LIVE</span>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', height: '400px', position: 'relative', border: '1px solid var(--border-color)' }}>
+            <div style={{ 
+                position: 'absolute', top: '12px', right: '12px', zindex: 1000, 
+                background: 'rgba(255,255,255,0.9)', padding: '4px 10px', 
+                borderRadius: '20px', fontSize: '10px', fontWeight: 'bold', 
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)', border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)', pointerEvents: 'none'
+            }}>
+                📍 VIT CHENNAI CAMPUS MAP (LIVE)
             </div>
 
-            {/* City Grid Background */}
-            <svg
-                width="100%"
-                viewBox="0 0 440 340"
-                style={{ display: 'block', minHeight: 300 }}
+            <MapContainer 
+                center={VIT_CHENNAI_COORDS} 
+                zoom={15} 
+                style={{ height: '100%', width: '100%' }}
+                scrollWheelZoom={false}
             >
-                {/* Background */}
-                <rect width="440" height="340" fill="#020b14" />
+                <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
 
-                {/* Grid lines (city streets) */}
-                {[60, 130, 200, 270, 340].map(x => (
-                    <line key={`vx${x}`} x1={x} y1={0} x2={x} y2={340} stroke="rgba(0,245,255,0.05)" strokeWidth="1" />
+                {validNodes.map((node, i) => (
+                    <CircleMarker 
+                        key={node._id || i}
+                        center={node.position}
+                        radius={10}
+                        pathOptions={{ 
+                            fillColor: node.color, 
+                            color: '#fff', 
+                            weight: 2, 
+                            fillOpacity: 0.8 
+                        }}
+                    >
+                        <Popup>
+                            <div style={{ fontFamily: 'var(--font-body)', minWidth: '160px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 'bold', color: node.color, marginBottom: '4px' }}>
+                                    {node.nodeId} — {node.zone}
+                                </div>
+                                <div style={{ fontSize: '12px', borderTop: '1px solid #eee', paddingTop: '4px' }}>
+                                    <div><strong>Status:</strong> {node.waterStatus || 'NORMAL'}</div>
+                                    <div><strong>Gas Level:</strong> {node.gasLevel || 0}</div>
+                                    <div><strong>Battery:</strong> {node.batteryLevel || 100}%</div>
+                                    <div><strong>Last Updated:</strong> {new Date(node.timestamp).toLocaleTimeString()}</div>
+                                </div>
+                                <div style={{ marginTop: '8px', fontSize: '11px', color: '#666' }}>
+                                    📍 {node.position[0].toFixed(4)}, {node.position[1].toFixed(4)}
+                                </div>
+                            </div>
+                        </Popup>
+                    </CircleMarker>
                 ))}
-                {[60, 130, 200, 270].map(y => (
-                    <line key={`hy${y}`} x1={0} y1={y} x2={440} y2={y} stroke="rgba(0,245,255,0.05)" strokeWidth="1" />
-                ))}
+            </MapContainer>
 
-                {/* City blocks */}
-                {[
-                    [70, 70, 50, 50], [140, 70, 70, 50], [230, 70, 50, 50], [300, 70, 30, 50],
-                    [70, 150, 40, 60], [130, 150, 90, 60], [240, 150, 60, 60], [320, 150, 50, 60],
-                    [70, 240, 60, 50], [160, 240, 40, 50], [230, 240, 80, 50], [330, 240, 40, 50],
-                ].map(([x, y, w, h], i) => (
-                    <rect key={i} x={x} y={y} width={w} height={h}
-                        fill="rgba(0,245,255,0.03)" stroke="rgba(0,245,255,0.07)" strokeWidth="1" rx="2" />
-                ))}
-
-                {/* Connection lines between nodes */}
-                {mapNodes.map((n, i) => (
-                    mapNodes.slice(i + 1, i + 2).map((m, j) => (
-                        <line key={`l${i}${j}`}
-                            x1={n.x} y1={n.y} x2={m.x} y2={m.y}
-                            stroke="rgba(0,245,255,0.1)" strokeWidth="1" strokeDasharray="4 4"
-                        />
-                    ))
-                ))}
-
-                {/* Pulse rings on each node */}
-                {mapNodes.map((n, i) => (
-                    <g key={`p${i}`}>
-                        <circle cx={n.x} cy={n.y} r="20"
-                            fill="none" stroke={n.color} strokeWidth="1" opacity="0">
-                            <animate attributeName="r" from="10" to="40" dur="2s" repeatCount="indefinite"
-                                begin={`${i * 0.6}s`} />
-                            <animate attributeName="opacity" from="0.8" to="0" dur="2s" repeatCount="indefinite"
-                                begin={`${i * 0.6}s`} />
-                        </circle>
-                        <circle cx={n.x} cy={n.y} r="14"
-                            fill="none" stroke={n.color} strokeWidth="0.5" opacity="0">
-                            <animate attributeName="r" from="6" to="30" dur="2.5s" repeatCount="indefinite"
-                                begin={`${i * 0.6 + 0.4}s`} />
-                            <animate attributeName="opacity" from="0.5" to="0" dur="2.5s" repeatCount="indefinite"
-                                begin={`${i * 0.6 + 0.4}s`} />
-                        </circle>
-                    </g>
-                ))}
-
-                {/* Node dots */}
-                {mapNodes.map((n, i) => (
-                    <g key={`n${i}`}>
-                        {/* Outer glow */}
-                        <circle cx={n.x} cy={n.y} r="10" fill={n.color} opacity="0.2" />
-                        {/* Node body */}
-                        <circle cx={n.x} cy={n.y} r="7" fill={n.color} />
-                        <circle cx={n.x} cy={n.y} r="4" fill="rgba(0,0,0,0.5)" />
-                        {/* Label */}
-                        <text x={n.x} y={n.y + 22} textAnchor="middle"
-                            fill={n.color} fontSize="9" fontFamily="Orbitron, monospace" fontWeight="700">
-                            {n.nodeId.replace('NODE-0', 'N')}
-                        </text>
-                        <text x={n.x} y={n.y + 33} textAnchor="middle"
-                            fill="rgba(255,255,255,0.5)" fontSize="7" fontFamily="Inter, sans-serif">
-                            {n.zone}
-                        </text>
-                    </g>
-                ))}
-
-                {/* Legend */}
-                <g transform="translate(10, 310)">
-                    {[
-                        ['#00ff88', 'Healthy'],
-                        ['#ffb800', 'Warning'],
-                        ['#ff2d55', 'Critical'],
-                    ].map(([color, label], i) => (
-                        <g key={i} transform={`translate(${i * 110}, 0)`}>
-                            <circle cx="6" cy="6" r="5" fill={color} />
-                            <text x="15" y="10" fill="rgba(255,255,255,0.5)" fontSize="9" fontFamily="Inter, sans-serif">
-                                {label}
-                            </text>
-                        </g>
-                    ))}
-                </g>
-            </svg>
+            {/* Custom Legend Overlay */}
+            <div style={{ 
+                position: 'absolute', bottom: '12px', left: '12px', zIndex: 1000, 
+                background: 'rgba(255,255,255,0.9)', padding: '8px 12px', 
+                borderRadius: '8px', border: '1px solid var(--border-color)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+                <div style={{ display: 'flex', gap: '12px', fontSize: '10px', fontWeight: 'bold' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#558B2F' }}></div> HEALTHY
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#F57C00' }}></div> WARNING
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#d32f2f' }}></div> CRITICAL
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }
