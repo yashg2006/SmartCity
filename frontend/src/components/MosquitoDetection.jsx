@@ -376,10 +376,10 @@ export default function MosquitoDetection({ nodes, connected, showToast, user })
                                         Risk Factor Breakdown
                                     </div>
                                     {[
-                                        { label: '🧠 ML Detection', value: analysisResult.riskFactors.mlScore, max: 40, color: '#e91e63' },
-                                        { label: '💧 Water Stagnation', value: analysisResult.riskFactors.waterScore, max: 30, color: '#2196f3' },
-                                        { label: '🌡️ Environment', value: analysisResult.riskFactors.gasScore, max: 15, color: '#ff9800' },
-                                        { label: '📊 History (7 days)', value: analysisResult.riskFactors.historyScore, max: 15, color: '#9c27b0' },
+                                        { label: '🧠 ML Analysis', value: analysisResult.riskFactors.mlScore, max: 35, color: '#e91e63' },
+                                        { label: '💧 Stagnation', value: analysisResult.riskFactors.waterScore, max: 20, color: '#2196f3' },
+                                        { label: '🛰️ Swarm Sensors', value: analysisResult.riskFactors.swarmScore, max: 35, color: '#ff9800' },
+                                        { label: '🌡️ Environment', value: (analysisResult.riskFactors.gasScore || 0) + (analysisResult.riskFactors.historyScore || 0), max: 10, color: '#9c27b0' },
                                     ].map((factor, i) => (
                                         <div key={i} style={{ marginBottom: 10 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
@@ -396,14 +396,40 @@ export default function MosquitoDetection({ nodes, connected, showToast, user })
                                     ))}
                                 </div>
 
+                                {/* Hardware Details */}
+                                {analysisResult.hardwareStats && (
+                                    <div style={{
+                                        marginTop: 16, padding: 12, borderRadius: 'var(--radius-sm)',
+                                        background: 'var(--surface-input)', border: '1px solid var(--border-color)'
+                                    }}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>
+                                            🛰️ Live Swarm Parameters
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 11 }}>
+                                            <div style={{ color: analysisResult.hardwareStats.motion ? 'var(--gov-red)' : 'inherit' }}>
+                                                <strong>Motion:</strong> {analysisResult.hardwareStats.motion ? '📡 ACTIVE' : 'NONE'}
+                                            </div>
+                                            <div>
+                                                <strong>Sound:</strong> {analysisResult.hardwareStats.sound} <span style={{ fontSize: 9, opacity: 0.7 }}>(Buzz Index)</span>
+                                            </div>
+                                            <div>
+                                                <strong>Humidity:</strong> {analysisResult.hardwareStats.humidity}%
+                                            </div>
+                                            <div>
+                                                <strong>Temp:</strong> {analysisResult.hardwareStats.temp}°C
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Water stagnation warning */}
                                 {analysisResult.waterStagnation && (
                                     <div style={{
                                         padding: '10px 14px', borderRadius: 'var(--radius-sm)',
                                         background: 'rgba(33,150,243,0.08)', border: '1px solid rgba(33,150,243,0.2)',
-                                        fontSize: 12, color: '#1565c0', marginBottom: 12
+                                        fontSize: 12, color: '#1565c0', marginBottom: 12, marginTop: 12
                                     }}>
-                                        🌊 <strong>Water stagnation detected</strong> by drainage sensors — ideal breeding conditions for Aedes mosquitoes
+                                        🌊 <strong>Water stagnation detected</strong> — ideal breeding conditions for mosquitoes
                                     </div>
                                 )}
 
@@ -421,15 +447,15 @@ export default function MosquitoDetection({ nodes, connected, showToast, user })
                                 <h3 style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>Awaiting Analysis</h3>
                                 <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
                                     Capture a photo of the suspected area. Our AI model will analyze it for mosquito
-                                    presence and combine it with real-time sensor data to generate a breeding risk score.
+                                    presence and combine it with real-time **Sound, PIR, and DHT11** sensors to generate a swarm risk score.
                                 </p>
                                 <div style={{ marginTop: 20, padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: 'var(--surface-input)', fontSize: 11, textAlign: 'left' }}>
-                                    <div style={{ fontWeight: 700, marginBottom: 6, color: 'var(--text-secondary)' }}>📋 What we analyze:</div>
+                                    <div style={{ fontWeight: 700, marginBottom: 6, color: 'var(--text-secondary)' }}>📋 Fusion Logic (Swarms):</div>
                                     <div style={{ color: 'var(--text-muted)', lineHeight: 1.8 }}>
-                                        • Image → ML mosquito classification (40%)<br />
-                                        • Water sensor → Stagnation detection (30%)<br />
-                                        • Gas sensor → Organic decay levels (15%)<br />
-                                        • Past reports → Zone history risk (15%)
+                                        • Image → ML Detection (35%)<br />
+                                        • Swarm Sensors → Sound + Motion (35%)<br />
+                                        • Water sensor → Stagnation (20%)<br />
+                                        • Environment → DHT11 + History (10%)
                                     </div>
                                 </div>
                             </div>

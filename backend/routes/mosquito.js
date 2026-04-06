@@ -34,20 +34,30 @@ async function runMosquitoML(imageBase64) {
 
 // ─── Risk Score Calculator ────────────────────────────────
 async function calculateRiskScore(mlResult, mlConfidence, zone) {
-    // Factor 1: ML detection score (40% weight)
+    // Factor 1: ML detection score (35% weight)
     let mlScore = 0;
     if (mlResult === 'DETECTED') {
-        mlScore = mlConfidence * 40;
+        mlScore = mlConfidence * 35;
     } else if (mlResult === 'POTENTIAL_RISK') {
-        mlScore = mlConfidence * 20;
+        mlScore = mlConfidence * 15;
     } else {
-        mlScore = (1 - mlConfidence) * 10; // Low risk if NOT_DETECTED with low confidence
+        mlScore = (1 - mlConfidence) * 5; 
     }
 
-    // Factor 2: Water stagnation from sensors (30% weight)
+    // Factor 2: Water stagnation from sensors (20% weight)
     let waterScore = 0;
     let waterStagnation = false;
     let gasLevel = 0;
+    
+    // Factor 3: Hardware Swarm Sensors (35% weight)
+    // PIR Motion + Sound Buzzing + DHT11 Humidity/Temp
+    let swarmScore = 0;
+    let hardwareStats = {
+        temp: 0,
+        humidity: 0,
+        sound: 0,
+        motion: false
+    };
 
     try {
         const latestSensor = await SensorData.findOne({ zone })
@@ -55,51 +65,69 @@ async function calculateRiskScore(mlResult, mlConfidence, zone) {
             .limit(1);
 
         if (latestSensor) {
-            // Water stagnation: overflow or very low drainage distance = standing water
+            // Water logic
             if (latestSensor.waterStatus === 'OVERFLOW' ||
                 (latestSensor.drainDistance != null && latestSensor.drainDistance < 5)) {
-                waterScore = 30;
+                waterScore = 20;
                 waterStagnation = true;
             } else if (latestSensor.waterStatus === 'DRY') {
-                // Dry drainage with recent overflow could indicate stagnant puddles
-                waterScore = 15;
-                waterStagnation = false;
+                waterScore = 10;
             }
             gasLevel = latestSensor.gasLevel || 0;
+
+            // Swarm Logic (35% total)
+            hardwareStats.temp = latestSensor.temperature || 0;
+            hardwareStats.humidity = latestSensor.humidity || 0;
+            hardwareStats.sound = latestSensor.soundLevel || 0;
+            hardwareStats.motion = latestSensor.motion || false;
+
+            // Humidity (ideal > 70%)
+            if (hardwareStats.humidity > 70) swarmScore += 10;
+            else if (hardwareStats.humidity > 50) swarmScore += 5;
+
+            // Temperature (ideal 25-35)
+            if (hardwareStats.temp >= 25 && hardwareStats.temp <= 35) swarmScore += 5;
+
+            // Sound (buzzing detection - dynamic threshold)
+            if (hardwareStats.sound > 50) swarmScore += 10;
+
+            // Motion (active swarm moving)
+            if (hardwareStats.motion) swarmScore += 10;
         }
     } catch (err) {
         console.error('Sensor data fetch error:', err.message);
     }
 
-    // Factor 3: Gas/environment levels (15% weight)
-    // Higher gas readings can indicate decaying organic matter — mosquito-friendly
-    const gasScore = Math.min(15, (gasLevel / 4095) * 15);
+    // Factor 4: Gas/environment levels (5% weight)
+    const gasScore = Math.min(5, (gasLevel / 4095) * 5);
 
-    // Factor 4: Historical reports in this zone (15% weight)
+    // Factor 5: Historical reports in this zone (5% weight)
     let historyScore = 0;
     try {
         const recentCount = await MosquitoReport.countDocuments({
             zone,
             mlResult: { $in: ['DETECTED', 'POTENTIAL_RISK'] },
-            createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // last 7 days
+            createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
         });
-        historyScore = Math.min(15, (recentCount / 10) * 15);
+        historyScore = Math.min(5, (recentCount / 5) * 5);
     } catch (err) {
         console.error('History fetch error:', err.message);
     }
 
-    const riskScore = Math.round(Math.min(100, mlScore + waterScore + gasScore + historyScore));
+    const riskScore = Math.round(Math.min(100, mlScore + waterScore + swarmScore + gasScore + historyScore));
 
     return {
         riskScore,
         riskFactors: {
             mlScore: Math.round(mlScore * 10) / 10,
             waterScore: Math.round(waterScore * 10) / 10,
+            swarmScore: Math.round(swarmScore * 10) / 10,
             gasScore: Math.round(gasScore * 10) / 10,
             historyScore: Math.round(historyScore * 10) / 10
         },
         waterStagnation,
-        gasLevel
+        gasLevel,
+        hardwareStats
     };
 }
 
@@ -195,6 +223,31 @@ router.get('/reports', async (req, res) => {
         res.json(reports);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+// ─── GET /api/mosquito/latest-report ──────────────────────
+// Returns the most recent analysis result for a zone (polled by ESP32 LCD)
+router.get('/latest-report', async (req, res) => {
+    try {
+        const zone = req.query.zone || 'Sector 4A';
+        const report = await MosquitoReport.findOne({ zone })
+            .sort({ createdAt: -1 })
+            .select('mlResult confidence riskScore createdAt');
+
+        if (!report) {
+            return res.status(404).json({ error: 'No reports found for this zone' });
+        }
+
+        res.json({
+            success: true,
+            mlResult: report.mlResult,
+            confidence: report.confidence,
+            riskScore: report.riskScore,
+            timestamp: report.createdAt
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch latest report' });
     }
 });
 

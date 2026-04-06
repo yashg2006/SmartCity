@@ -10,13 +10,17 @@ router.post('/data', async (req, res) => {
         console.log('📥 Sensor Data Received:', req.body);
         const {
             nodeId, zone, distance, drainDistance, gasLevel, waterStatus, lat, lng, batteryLevel,
-            dustbin, drainage, gas, waterLeak, weight, turbidity, waterQuality
+            dustbin, drainage, gas, waterLeak, weight, turbidity, waterQuality,
+            temperature, humidity, soundLevel, motion, temp, humid, sound
         } = req.body;
 
         // Map incoming keys from Arduino code to dashboard format
         const finalDistance = dustbin !== undefined ? dustbin : (distance !== undefined ? distance : 0);
         const finalDrainDist = drainage !== undefined ? drainage : (drainDistance !== undefined ? drainDistance : null);
         const finalGas = gas !== undefined ? gas : (gasLevel !== undefined ? gasLevel : 0);
+        const finalTemp = temp !== undefined ? temp : (temperature !== undefined ? temperature : null);
+        const finalHumid = humid !== undefined ? humid : (humidity !== undefined ? humidity : null);
+        const finalSound = sound !== undefined ? sound : (soundLevel !== undefined ? soundLevel : 0);
 
         // Water sensor logic:
         // waterLeak='YES' or waterStatus='OVERFLOW' → water overflowing
@@ -41,6 +45,10 @@ router.post('/data', async (req, res) => {
             drainDistance: finalDrainDist,
             gasLevel: finalGas,
             waterStatus: finalWater,
+            temperature: finalTemp,
+            humidity: finalHumid,
+            soundLevel: finalSound,
+            motion: motion || false,
             lat: lat || 12.8406,
             lng: lng || 80.1534,
             batteryLevel: batteryLevel || 100,
