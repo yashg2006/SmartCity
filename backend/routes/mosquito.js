@@ -3,24 +3,32 @@ const router = express.Router();
 const MosquitoReport = require('../models/MosquitoReport');
 const SensorData = require('../models/SensorData');
 
-// ─── ML Simulation ────────────────────────────────────────
-// In production, replace this with a real TensorFlow / ONNX model call.
-// This simulates ML inference based on image analysis keywords.
-function runMosquitoML(imageBase64) {
-    // Simulate ML model inference
-    // In real deployment: load a TensorFlow.js model or call a Python ML API
-    const imageSize = imageBase64.length;
-    const hash = imageBase64.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+// ─── Real ML Inference (Python ML Server) ──────────────────
+// Calls the FastAPI server running the YOLOv8 model
+async function runMosquitoML(imageBase64) {
+    try {
+        const mlServerUrl = process.env.ML_SERVER_URL || 'http://localhost:8000/predict';
+        
+        const response = await fetch(mlServerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageData: imageBase64 })
+        });
 
-    // Simulate varying confidence based on image characteristics
-    const seed = (hash % 100) / 100;
+        if (!response.ok) {
+            throw new Error(`ML Server responded with ${response.status}`);
+        }
 
-    if (seed > 0.65) {
-        return { result: 'DETECTED', confidence: 0.7 + (seed * 0.3) };
-    } else if (seed > 0.35) {
-        return { result: 'POTENTIAL_RISK', confidence: 0.4 + (seed * 0.25) };
-    } else {
-        return { result: 'NOT_DETECTED', confidence: 0.75 + (seed * 0.2) };
+        const data = await response.json();
+        
+        return { 
+            result: data.mlResult || 'NOT_DETECTED', 
+            confidence: data.confidence || 0 
+        };
+    } catch (err) {
+        console.error('ML Server error, falling back to simulation:', err.message);
+        // Fallback to a safe "not detected" if the server is down
+        return { result: 'NOT_DETECTED', confidence: 0.5 };
     }
 }
 
@@ -107,8 +115,8 @@ router.post('/analyze', async (req, res) => {
 
         const finalZone = zone || 'Sector 4A';
 
-        // Step 1: Run ML inference
-        const { result: mlResult, confidence } = runMosquitoML(imageData);
+        // Step 1: Run real ML inference
+        const { result: mlResult, confidence } = await runMosquitoML(imageData);
 
         // Step 2: Calculate risk score using sensors + ML + history
         const riskData = await calculateRiskScore(mlResult, confidence, finalZone);
