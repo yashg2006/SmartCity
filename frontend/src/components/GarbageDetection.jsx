@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { API_URL } from '../config'
 
 const BIN_DEPTH = 50 // cm — bin depth from ultrasonic sensor on lid to bottom
+const MAX_WEIGHT = 5000 // grams — maximum garbage weight capacity
+const ULTRA_WEIGHT = 0.7 // 70% weightage to ultrasonic
+const LOAD_WEIGHT = 0.3  // 30% weightage to load cell
+
 const SECTORS = [
     { id: 'sector-4a', name: 'Sector 4A', location: 'Main Market Zone', enabled: true },
     { id: 'sector-1b', name: 'Sector 1B', location: 'North Residential Area', enabled: false },
@@ -11,12 +15,32 @@ const SECTORS = [
     { id: 'sector-6f', name: 'Sector 6F', location: 'Industrial Area', enabled: false },
 ]
 
-function getBinStatus(distance) {
-    if (distance == null) return { status: 'NO DATA', fillPct: 0, color: 'var(--text-muted)' }
-    const fillPct = Math.max(0, Math.min(100, Math.round(((BIN_DEPTH - distance) / BIN_DEPTH) * 100)))
-    if (fillPct > 85) return { status: 'CRITICAL', fillPct, color: 'var(--gov-red)' }
-    if (fillPct > 65) return { status: 'WARNING', fillPct, color: 'var(--gov-amber)' }
-    return { status: 'HEALTHY', fillPct, color: 'var(--gov-green)' }
+function getBinStatus(distance, weight) {
+    const hasDistance = distance != null && distance >= 0
+    const hasWeight = weight != null && weight > 0
+
+    if (!hasDistance && !hasWeight) return { status: 'NO DATA', fillPct: 0, distFill: 0, weightFill: 0, color: 'var(--text-muted)' }
+
+    const distFill = hasDistance ? Math.max(0, Math.min(100, ((BIN_DEPTH - distance) / BIN_DEPTH) * 100)) : 0
+    const weightFill = hasWeight ? Math.max(0, Math.min(100, (weight / MAX_WEIGHT) * 100)) : 0
+
+    let fillPct
+    if (hasDistance && hasWeight) {
+        // Combined: 70% ultrasonic + 30% weight
+        fillPct = Math.round(ULTRA_WEIGHT * distFill + LOAD_WEIGHT * weightFill)
+    } else if (hasDistance) {
+        fillPct = Math.round(distFill)
+    } else {
+        fillPct = Math.round(weightFill)
+    }
+    fillPct = Math.max(0, Math.min(100, fillPct))
+
+    if (hasDistance && distance < 3) return { status: 'FILLED', fillPct, distFill: Math.round(distFill), weightFill: Math.round(weightFill), color: 'var(--gov-red)' }
+    if (hasDistance && distance < 7) return { status: 'FILLING', fillPct, distFill: Math.round(distFill), weightFill: Math.round(weightFill), color: 'var(--gov-amber)' }
+    
+    if (fillPct > 85) return { status: 'CRITICAL', fillPct, distFill: Math.round(distFill), weightFill: Math.round(weightFill), color: 'var(--gov-red)' }
+    if (fillPct > 65) return { status: 'WARNING', fillPct, distFill: Math.round(distFill), weightFill: Math.round(weightFill), color: 'var(--gov-amber)' }
+    return { status: 'HEALTHY', fillPct, distFill: Math.round(distFill), weightFill: Math.round(weightFill), color: 'var(--gov-green)' }
 }
 
 export default function GarbageDetection({ nodes, history = [], connected, showToast, user }) {
@@ -32,7 +56,7 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
     const activeNode = nodes.find(n => n.zone === 'Sector 4A' || n.nodeId === 'NODE-001') || null
     const binHistory = history.filter(h => h.distance != null && h.distance > 0)
 
-    const binStatus = activeNode ? getBinStatus(activeNode.distance) : { status: 'OFFLINE', fillPct: 0, color: 'var(--text-muted)' }
+    const binStatus = activeNode ? getBinStatus(activeNode.distance, activeNode.weight) : { status: 'OFFLINE', fillPct: 0, distFill: 0, weightFill: 0, color: 'var(--text-muted)' }
 
     // Fetch existing reports
     useEffect(() => {
@@ -139,27 +163,27 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
             {/* Bin Stats */}
             <div className="stats-grid" style={{ marginTop: 20 }}>
                 <div className="card stat-card" style={{ '--accent-color': binStatus.color }}>
-                    <div className="stat-label">Bin Fill Level</div>
+                    <div className="stat-label">Combined Fill Level</div>
                     <div className="stat-value">{binStatus.fillPct}<span className="stat-unit">%</span></div>
-                    <div className="stat-trend">{binStatus.status === 'CRITICAL' ? '⚠️ May overflow soon' : binStatus.status === 'WARNING' ? 'Approaching capacity' : 'Within safe range'}</div>
+                    <div className="stat-trend">{['CRITICAL', 'FILLED'].includes(binStatus.status) ? '⚠️ Max capacity reached' : ['WARNING', 'FILLING'].includes(binStatus.status) ? 'Approaching capacity' : 'Within safe range'}</div>
                     <span className="stat-icon-bg">🗑️</span>
                 </div>
                 <div className="card stat-card" style={{ '--accent-color': binStatus.color }}>
                     <div className="stat-label">Bin Status</div>
                     <div className="stat-value" style={{ fontSize: 22 }}>{binStatus.status}</div>
-                    <div className="stat-trend">{activeNode ? 'Real-time reading' : 'Waiting for hardware'}</div>
+                    <div className="stat-trend">{activeNode ? `US: ${binStatus.distFill}% · WT: ${binStatus.weightFill}%` : 'Waiting for hardware'}</div>
                 </div>
                 <div className="card stat-card" style={{ '--accent-color': 'var(--gov-blue)' }}>
                     <div className="stat-label">Ultrasonic Distance</div>
                     <div className="stat-value">{activeNode?.distance ?? '—'}<span className="stat-unit">cm</span></div>
-                    <div className="stat-trend">Sensor (lid) → Garbage surface</div>
+                    <div className="stat-trend">70% weightage · Lid → Surface</div>
                     <span className="stat-icon-bg">📏</span>
                 </div>
-                <div className="card stat-card" style={{ '--accent-color': 'var(--gov-saffron)' }}>
-                    <div className="stat-label">Citizen Reports</div>
-                    <div className="stat-value">{reports.length}</div>
-                    <div className="stat-trend">Total garbage reports submitted</div>
-                    <span className="stat-icon-bg">📸</span>
+                <div className="card stat-card" style={{ '--accent-color': 'var(--gov-purple, #7b1fa2)' }}>
+                    <div className="stat-label">Garbage Weight</div>
+                    <div className="stat-value">{activeNode?.weight != null ? (activeNode.weight >= 1000 ? (activeNode.weight / 1000).toFixed(1) : activeNode.weight) : '—'}<span className="stat-unit">{activeNode?.weight >= 1000 ? 'kg' : 'g'}</span></div>
+                    <div className="stat-trend">30% weightage · HX711 Load Cell</div>
+                    <span className="stat-icon-bg">⚖️</span>
                 </div>
             </div>
 
@@ -171,7 +195,7 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
                         <h3 className="card-title">🔬 Bin Cross-Section</h3>
                     </div>
                     <div className="card-body" style={{ padding: 0, display: 'flex', justifyContent: 'center', background: '#f8fbf7' }}>
-                        <svg viewBox="0 0 300 320" width="100%" style={{ maxWidth: 300, display: 'block' }}>
+                        <svg viewBox="0 0 300 340" width="100%" style={{ maxWidth: 300, display: 'block' }}>
                             {/* Bin body (trapezoid shape) */}
                             <path d="M 60 60 L 50 280 L 250 280 L 240 60 Z" fill="#e0e0e0" stroke="#bbb" strokeWidth="2" />
                             <path d="M 70 68 L 60 272 L 240 272 L 230 68 Z" fill="#fafafa" stroke="#eee" strokeWidth="1" />
@@ -194,15 +218,24 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
                             <rect x="130" y="40" width="40" height="12" rx="3" fill="#2196f3" stroke="#1565c0" strokeWidth="1" />
                             <text x="150" y="49" fill="#fff" fontSize="7" fontWeight="700" textAnchor="middle">US</text>
 
+                            {/* Load cell under bin */}
+                            <rect x="80" y="282" width="140" height="10" rx="3" fill="#7b1fa2" stroke="#6a1b9a" strokeWidth="1" />
+                            <text x="150" y="290" fill="#fff" fontSize="6" fontWeight="700" textAnchor="middle">LOAD CELL</text>
+
                             {/* Distance line from sensor to garbage */}
                             <line x1="150" y1="64" x2="150" y2={272 - (binStatus.fillPct / 100 * 204)} stroke="#2196f3" strokeDasharray="4 4" strokeWidth="1.5" />
-                            <text x="162" y={170} fill="#1565c0" fontSize="9" fontWeight="600">
+                            <text x="162" y={150} fill="#1565c0" fontSize="9" fontWeight="600">
                                 {activeNode?.distance ?? '?'}cm
                             </text>
 
+                            {/* Weight label */}
+                            <text x="150" y="305" textAnchor="middle" fill="#7b1fa2" fontSize="9" fontWeight="600">
+                                ⚖️ {activeNode?.weight != null ? `${activeNode.weight}g` : '—'}
+                            </text>
+
                             {/* Fill level label */}
-                            <text x="150" y="295" textAnchor="middle" fill="#999" fontSize="10">
-                                Fill: {binStatus.fillPct}% ({BIN_DEPTH - (activeNode?.distance || BIN_DEPTH)}cm / {BIN_DEPTH}cm)
+                            <text x="150" y="318" textAnchor="middle" fill="#999" fontSize="9">
+                                Combined: {binStatus.fillPct}% (US:{binStatus.distFill}% + WT:{binStatus.weightFill}%)
                             </text>
 
                             {/* Overflow warning */}
@@ -376,14 +409,15 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
                                 <tr>
                                     <th>Timestamp</th>
                                     <th>Node</th>
-                                    <th>Distance (cm)</th>
-                                    <th>Fill Level</th>
+                                    <th>Dist (cm)</th>
+                                    <th>Weight (g)</th>
+                                    <th>Combined Fill</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {binHistory.slice(0, 30).map((log, i) => {
-                                    const logStatus = getBinStatus(log.distance)
+                                    const logStatus = getBinStatus(log.distance, log.weight)
                                     return (
                                         <tr key={log.timestamp + i} style={{ opacity: 1 - (i * 0.02) }}>
                                             <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
@@ -391,6 +425,7 @@ export default function GarbageDetection({ nodes, history = [], connected, showT
                                             </td>
                                             <td style={{ fontWeight: 600 }}>{log.nodeId}</td>
                                             <td>{log.distance}</td>
+                                            <td>{log.weight ?? '—'}</td>
                                             <td>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 100 }}>
                                                     <div style={{ flex: 1, height: 6, background: '#f0f4f8', borderRadius: 3 }}>

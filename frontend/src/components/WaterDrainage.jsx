@@ -116,6 +116,12 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                     <div className="stat-trend">Sensor → Water surface</div>
                     <span className="stat-icon-bg">📏</span>
                 </div>
+                <div className="card stat-card" style={{ '--accent-color': activeNode?.waterQuality === 'HAZARDOUS' ? 'var(--gov-red)' : activeNode?.waterQuality === 'DIRTY' ? 'var(--gov-amber)' : 'var(--gov-green)' }}>
+                    <div className="stat-label">Water Quality</div>
+                    <div className="stat-value" style={{ fontSize: 20 }}>{activeNode?.waterQuality ?? '—'}</div>
+                    <div className="stat-trend">{activeNode?.turbidity != null ? `${Math.round(activeNode.turbidity)} NTU` : 'Turbidity sensor'}</div>
+                    <span className="stat-icon-bg">🔬</span>
+                </div>
             </div>
 
             {/* Pipeline Visualization + Diagnosis */}
@@ -176,6 +182,9 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
 
                             {/* Labels */}
                             <text x="200" y="232" textAnchor="middle" fill="#999" fontSize="10">Water Level: {waterLevel}cm / {PIPE_DEPTH}cm</text>
+                            <text x="200" y="248" textAnchor="middle" fill={activeNode?.waterQuality === 'HAZARDOUS' ? '#d32f2f' : activeNode?.waterQuality === 'DIRTY' ? '#f57c00' : '#388e3c'} fontSize="9" fontWeight="600">
+                                🔬 Turbidity: {activeNode?.turbidity != null ? `${Math.round(activeNode.turbidity)} NTU — ${activeNode.waterQuality}` : 'No data'}
+                            </text>
 
                             {/* DRY indicator */}
                             {activeNode?.waterStatus === 'DRY' && (
@@ -193,6 +202,23 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                             )}
                         </svg>
                     </div>
+                    {/* Turbidity color bar */}
+                    {activeNode?.turbidity != null && (
+                        <div style={{ padding: '8px 16px', background: '#f7f9fc', borderTop: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>Water Clarity:</span>
+                            <div style={{ flex: 1, height: 8, background: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+                                <div style={{
+                                    height: '100%',
+                                    width: `${Math.min(100, (activeNode.turbidity / 3000) * 100)}%`,
+                                    background: activeNode.turbidity > 1500 ? '#d32f2f' : activeNode.turbidity > 500 ? '#f57c00' : activeNode.turbidity > 50 ? '#ffd54f' : '#4caf50',
+                                    borderRadius: 4, transition: 'width 0.5s'
+                                }} />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: activeNode.turbidity > 1500 ? '#d32f2f' : '#388e3c' }}>
+                                {Math.round(activeNode.turbidity)} NTU
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="card">
@@ -227,6 +253,10 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                                     <span style={{ fontSize: 14 }}>🔗</span>
                                     <span><strong>Combined</strong> — Together they determine flow speed: flowing + high level = fast flow; flowing + low level = slow flow; dry = blockage.</span>
                                 </div>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                    <span style={{ fontSize: 14 }}>🟤</span>
+                                    <span><strong>Turbidity Sensor</strong> (submerged in water) — Measures water clarity in NTU. Clear (&lt;50 NTU) = clean. Dirty (&gt;500 NTU) = contaminated. Hazardous (&gt;1500 NTU) = sewage-level.</span>
+                                </div>
                             </div>
                         </div>
 
@@ -236,6 +266,7 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                                 <br /><strong>Node:</strong> {activeNode.nodeId} · {activeNode.zone}
                                 <br /><strong>Water Sensor:</strong> {activeNode.waterStatus}
                                 <br /><strong>Ultrasonic:</strong> {activeNode.drainDistance ?? 'N/A'} cm
+                                <br /><strong>Turbidity:</strong> {activeNode.turbidity != null ? `${Math.round(activeNode.turbidity)} NTU (${activeNode.waterQuality})` : 'N/A'}
                             </div>
                         )}
                     </div>
@@ -258,6 +289,7 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                                     <th>Drain Distance (cm)</th>
                                     <th>Water Level (cm)</th>
                                     <th>Fill %</th>
+                                    <th>Turbidity</th>
                                     <th>Water Sensor</th>
                                     <th>Diagnosis</th>
                                 </tr>
@@ -274,6 +306,9 @@ export default function WaterDrainage({ nodes, history = [], connected }) {
                                             <td>{log.drainDistance}</td>
                                             <td>{logDiag.waterLevel ?? '—'}</td>
                                             <td>{logDiag.fillPct ?? '—'}%</td>
+                                            <td style={{ color: (log.turbidity || 0) > 1500 ? '#d32f2f' : (log.turbidity || 0) > 500 ? '#f57c00' : '#388e3c', fontWeight: 600, fontSize: 11 }}>
+                                                {log.turbidity != null ? `${Math.round(log.turbidity)} NTU` : '—'}
+                                            </td>
                                             <td>
                                                 <span className={`status-chip ${log.waterStatus === 'NORMAL' ? 'healthy' : log.waterStatus === 'DRY' ? 'critical' : 'warning'}`} style={{ fontSize: 10 }}>
                                                     {log.waterStatus}

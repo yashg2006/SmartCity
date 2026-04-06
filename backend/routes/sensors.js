@@ -10,7 +10,7 @@ router.post('/data', async (req, res) => {
         console.log('📥 Sensor Data Received:', req.body);
         const {
             nodeId, zone, distance, drainDistance, gasLevel, waterStatus, lat, lng, batteryLevel,
-            dustbin, drainage, gas, waterLeak
+            dustbin, drainage, gas, waterLeak, weight, turbidity, waterQuality
         } = req.body;
 
         // Map incoming keys from Arduino code to dashboard format
@@ -31,10 +31,13 @@ router.post('/data', async (req, res) => {
             finalWater = waterStatus || 'NORMAL';
         }
 
+        const finalWeight = weight !== undefined ? weight : 0;
+
         const sensorPayload = {
             nodeId: nodeId || 'NODE-001',
             zone: zone || 'Sector 4A',
             distance: finalDistance,
+            weight: finalWeight,
             drainDistance: finalDrainDist,
             gasLevel: finalGas,
             waterStatus: finalWater,
@@ -42,6 +45,8 @@ router.post('/data', async (req, res) => {
             lng: lng || 77.5946,
             batteryLevel: batteryLevel || 100,
             isHardware: true,
+            turbidity: turbidity !== undefined ? turbidity : null,
+            waterQuality: waterQuality || 'UNKNOWN',
             timestamp: new Date().toISOString()
         };
 
@@ -53,30 +58,13 @@ router.post('/data', async (req, res) => {
         await data.save();
 
         // --- Alert Thresholds ---
-        // Bin full: distance < 8cm (ultrasonic on lid, close = full)
-        // Water dry: waterStatus DRY = no flow = potential blockage
-        // Drain high water: drainDistance < 5cm = water very close to sensor = pipe nearly full
-        const binFull = finalDistance > 0 && finalDistance < 8;
-        const waterDry = finalWater === 'DRY';
-        const drainHigh = finalDrainDist != null && finalDrainDist < 5;
-        const waterOverflow = finalWater === 'OVERFLOW';
+        const binFull = finalDistance > 0 && finalDistance < 3;
+        const binFilling = finalDistance >= 3 && finalDistance < 7;
+        const binHeavy = finalWeight > 4500; // >4.5kg = nearly full by weight
 
-        if (binFull || waterDry || drainHigh || waterOverflow) {
-            let alertType, message;
-            if (waterOverflow) {
-                alertType = 'WATER_OVERFLOW';
-                message = `🌊 Water overflow at ${sensorPayload.zone}`;
-            } else if (waterDry) {
-                alertType = 'WATER_DRY';
-                message = `⚠️ No water flow detected at ${sensorPayload.zone} — potential blockage`;
-            } else if (drainHigh) {
-                alertType = 'DRAIN_HIGH';
-                message = `🚧 High water level in drainage at ${sensorPayload.zone}: ${finalDrainDist}cm from sensor`;
-            } else {
-                alertType = 'BIN_FULL';
-                message = `🗑️ Dustbin nearly full at ${sensorPayload.zone}: only ${finalDistance}cm remaining`;
-            }
-
+        if (binFull) {
+            const alertType = 'BIN_FULL';
+            const message = `🚨 Dustbin FILLED at ${sensorPayload.zone}: only ${finalDistance}cm remaining!`;
             io.emit('sensor:alert', { ...sensorPayload, alertType, message });
         }
 

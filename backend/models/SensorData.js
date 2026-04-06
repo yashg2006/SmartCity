@@ -6,9 +6,12 @@ const SensorDataSchema = new mongoose.Schema({
     lat: { type: Number },
     lng: { type: Number },
     distance: { type: Number, default: 0 },  // cm — dustbin HC-SR04 (alert if < 8cm = full)
+    weight: { type: Number, default: 0 },    // grams — HX711 load cell (garbage weight)
     drainDistance: { type: Number, default: null },   // cm — drainage HC-SR04 (distance to water surface)
     gasLevel: { type: Number, default: 0 },  // ADC raw — MQ6 gas sensor (optional)
     waterStatus: { type: String, enum: ['NORMAL', 'OVERFLOW', 'DRY'], default: 'NORMAL' }, // water sensor: NORMAL=flowing, DRY=no flow
+    turbidity: { type: Number, default: null },  // NTU — turbidity sensor (water clarity)
+    waterQuality: { type: String, enum: ['CLEAR', 'CLOUDY', 'DIRTY', 'HAZARDOUS', 'UNKNOWN'], default: 'UNKNOWN' },
     batteryLevel: { type: Number, default: 100 },
     isHardware: { type: Boolean, default: false },
     timestamp: { type: Date, default: Date.now }

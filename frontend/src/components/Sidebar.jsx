@@ -3,6 +3,7 @@ export default function Sidebar({ activePage, setActivePage, connected, alertCou
         { id: 'dashboard', icon: '📊', label: 'Overview', section: 'CORE' },
         { id: 'drainage', icon: '💧', label: 'Water Drainage', section: 'MONITORING' },
         { id: 'garbage', icon: '🗑️', label: 'Garbage Detection', section: null },
+        { id: 'mosquito', icon: '🦟', label: 'Mosquito Detection', section: null },
         { id: 'municipal', icon: '🏢', label: 'Field Operations', section: 'MANAGEMENT', badge: alertCount > 0 ? alertCount : null },
         { id: 'leaderboard', icon: '🏆', label: 'Citizen Rankings', section: null },
         { id: 'apidocs', icon: '📖', label: 'Technical Docs', section: 'DEVELOPER' },

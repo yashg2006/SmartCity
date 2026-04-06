@@ -12,6 +12,7 @@ import Login from './components/Login'
 import TopHeader from './components/TopHeader'
 import WaterDrainage from './components/WaterDrainage'
 import GarbageDetection from './components/GarbageDetection'
+import MosquitoDetection from './components/MosquitoDetection'
 
 const socket = io(API_URL, { autoConnect: true })
 
@@ -138,6 +139,7 @@ export default function App() {
             case 'dashboard': return <Dashboard nodes={nodes} alerts={alerts} user={user} history={history} connected={connected} />
             case 'drainage': return <WaterDrainage nodes={nodes} history={history} connected={connected} />
             case 'garbage': return <GarbageDetection nodes={nodes} history={history} connected={connected} showToast={showToast} user={user} />
+            case 'mosquito': return <MosquitoDetection nodes={nodes} connected={connected} showToast={showToast} user={user} />
             case 'leaderboard': return <Leaderboard />
             case 'municipal': return <MunicipalPortal nodes={nodes} showToast={showToast} user={user} />
             case 'apidocs': return <ApiDocs />
