@@ -12,6 +12,10 @@ const SensorDataSchema = new mongoose.Schema({
     waterStatus: { type: String, enum: ['NORMAL', 'OVERFLOW', 'DRY'], default: 'NORMAL' }, // water sensor: NORMAL=flowing, DRY=no flow
     turbidity: { type: Number, default: null },  // NTU — turbidity sensor (water clarity)
     waterQuality: { type: String, enum: ['CLEAR', 'CLOUDY', 'DIRTY', 'HAZARDOUS', 'UNKNOWN'], default: 'UNKNOWN' },
+    temperature: { type: Number, default: null }, // DHT11 °C
+    humidity: { type: Number, default: null },    // DHT11 %
+    soundLevel: { type: Number, default: 0 },     // Sound sensor raw/dB
+    motion: { type: Boolean, default: false },    // PIR motion detected
     batteryLevel: { type: Number, default: 100 },
     isHardware: { type: Boolean, default: false },
     timestamp: { type: Date, default: Date.now }

@@ -155,6 +155,10 @@ export default function Dashboard({ nodes, alerts, user, incidents = [], history
                                             <strong>{activeNode.distance} cm</strong>
                                         </div>
                                         <div>
+                                            <span style={{ color: 'var(--text-muted)' }}>🌡️ Temp/Humid:</span>{' '}
+                                            <strong>{activeNode.temperature ?? '—'}°C / {activeNode.humidity ?? '—'}%</strong>
+                                        </div>
+                                        <div>
                                             <span style={{ color: 'var(--text-muted)' }}>🔋 Battery:</span>{' '}
                                             <strong>{Math.round(activeNode.batteryLevel)}%</strong>
                                         </div>

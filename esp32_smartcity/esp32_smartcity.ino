@@ -1,225 +1,181 @@
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <HX711.h>
+#include <WiFiS3.h>
+#include <ArduinoHttpClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+#include <ArduinoJson.h>
 
-/* ================= PIN DEFINITIONS ================= */
+/* ================= HARDWARE CONFIG ================= */
 
-// Ultrasonic - Dustbin
-#define TRIG_DUST   0
-#define ECHO_DUST   2
+// LCD display (Address 0x27, 16x2 characters)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// Ultrasonic - Drainage
-#define TRIG_DRAIN  18
-#define ECHO_DRAIN  19
+// DHT11 Sensor (Temperature & Humidity)
+#define DHTPIN 2
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
-// Other sensors
-#define WATER_PIN   13   // HW-038 DO
-#define GAS_PIN     12   // MQ-6 AO
-#define LED_PIN     14
+// Swarm Sensors (Sound & Motion)
+#define SOUND_PIN A0    // Analog input for Sound Sensor
+#define PIR_PIN 4       // Digital input for PIR Motion Sensor
 
-// HX711 Load Cell
-#define HX711_DT    25
-#define HX711_SCK   26
+// GPS Module (Note: R4 WiFi sometimes has issues with SoftwareSerial on certain pins)
+// Using pins 0 (RX) and 1 (TX) or specific SoftwareSerial pins
+static const int RXPin = 5, TXPin = 6;
+static const uint32_t GPSBaud = 9600;
+TinyGPSPlus gps;
+SoftwareSerial ss(RXPin, TXPin);
 
-// Turbidity Sensor
-#define TURBIDITY_PIN 34  // Analog input
+/* ================= NETWORK CONFIG ================= */
 
-/* ================= WIFI & SERVER ================= */
+char ssid[] = "Apna net khud bharwao"; // your network SSID
+char pass[] = "Leum9932";                  // your network password
 
-const char* ssid       = "Apna Net Khud Bharwao Yaar";
-const char* password   = "j6izw7as";
-const char* serverUrl  = "http://172.16.45.157:5000/api/sensors/data";
+char serverAddress[] = "10.44.53.60";      // Laptop IP
+int port = 3000;
 
-/* ================= HX711 ================= */
+WiFiClient wifi;
+HttpClient client = HttpClient(wifi, serverAddress, port);
 
-HX711 scale;
-float calibrationFactor = 420.0; // Adjust after calibration
+/* ================= GLOBALS ================= */
+
+unsigned long lastPollTime = 0;
+const int pollInterval = 5000; 
 
 /* ================= FUNCTIONS ================= */
 
-int readUltrasonic(int trig, int echo) {
-  digitalWrite(trig, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trig, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trig, LOW);
-
-  long duration = pulseIn(echo, HIGH, 30000);
-  if (duration == 0) return -1;
-
-  return duration * 0.034 / 2;
-}
-
-float readWeight() {
-  if (scale.is_ready()) {
-    float weight = scale.get_units(5);
-    if (weight < 0) weight = 0;
-    return weight;
-  }
-  return -1;
-}
-
-float readTurbidity() {
-  int raw = analogRead(TURBIDITY_PIN);
-  float voltage = raw * (3.3 / 4095.0);
-
-  float ntu;
-  if (voltage > 2.5) {
-    ntu = 0;
-  } else if (voltage > 1.0) {
-    ntu = (2.5 - voltage) * 2000.0;
-  } else {
-    ntu = 3000;
-  }
-  return ntu;
-}
-
-String getWaterQuality(float ntu) {
-  if (ntu < 50) return "CLEAR";
-  if (ntu < 500) return "CLEAR";
-  if (ntu < 1500) return "DIRTY";
-  return "HAZARDOUS";
+void updateLCD(String line1, String line2) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
 }
 
 void connectWiFi() {
-  Serial.print("Connecting to WiFi");
-
-  WiFi.disconnect(true);  // Clean disconnect first
-  delay(100);
-  WiFi.mode(WIFI_STA);    // Station mode
-  WiFi.begin(ssid, password);
+  Serial.println("\n📡 Initializing WiFi...");
+  updateLCD("WiFi Connecting", ssid);
+  
+  WiFi.begin(ssid, pass);
   int attempts = 0;
 
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(1000);
+    int status = WiFi.status();
+    Serial.print("Attempt ");
+    Serial.print(attempts + 1);
+    Serial.print(": Status ");
+    Serial.print(status);
+
+    // Human-readable status mapping
+    switch (status) {
+      case WL_NO_SHIELD:       Serial.println(" (No WiFi Shield Found)"); break;
+      case WL_IDLE_STATUS:     Serial.println(" (Idle - Waiting)"); break;
+      case WL_NO_SSID_AVAIL:   Serial.println(" (Network NOT Found - Check SSID)"); break;
+      case WL_SCAN_COMPLETED:  Serial.println(" (Scan Completed)"); break;
+      case WL_CONNECT_FAILED:  Serial.println(" (Connection Failed - Check Password)"); break;
+      case WL_CONNECTION_LOST: Serial.println(" (Connection Lost)"); break;
+      case WL_DISCONNECTED:    Serial.println(" (Disconnected)"); break;
+      default:                 Serial.println(" (Unknown Status)"); break;
+    }
+    
     attempts++;
   }
 
-  Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("✅ WiFi Connected");
+    Serial.println("\n✅ WiFi Connected!");
     Serial.print("📡 IP: ");
     Serial.println(WiFi.localIP());
+    updateLCD("UrbanPulse LIVE", WiFi.localIP().toString());
   } else {
-    Serial.println("❌ WiFi Failed — will retry in next loop");
+    Serial.println("\n❌ WiFi Failed! Please check your SSID/Password.");
+    updateLCD("WiFi FAILED", "Check Router");
   }
 }
 
-void sendToServer(int dust, int drain, int gas, bool waterLeak, float weight, float turbNTU, String waterQual) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("⚠️ WiFi not connected, reconnecting...");
-    connectWiFi();
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("⚠️ Still no WiFi, skipping send");
-      return;
-    }
+void sendSensorData(float temp, float humid, int sound, bool motion) {
+  StaticJsonDocument<200> doc;
+  doc["nodeId"] = "MOSQUITO-NODE-01";
+  doc["zone"] = "Sector 4A";
+  doc["temp"] = temp;
+  doc["humid"] = humid;
+  doc["sound"] = sound;
+  doc["motion"] = motion;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  Serial.println("Pushing sensors...");
+  client.post("/api/sensors/data", "application/json", payload);
+
+  int statusCode = client.responseStatusCode();
+  String response = client.responseBody();
+  Serial.print("Status: ");
+  Serial.println(statusCode);
+}
+
+void pollLatestResult() {
+  Serial.println("Checking latest result...");
+  client.get("/api/mosquito/latest-report?zone=Sector%204A");
+
+  int statusCode = client.responseStatusCode();
+  if (statusCode == 200) {
+    String response = client.responseBody();
+    StaticJsonDocument<500> doc;
+    deserializeJson(doc, response);
+
+    String mlResult = doc["mlResult"] | "N/A";
+    int risk = doc["riskScore"] | 0;
+
+    lcd.setCursor(0, 1);
+    lcd.print("                "); // Clear line
+    lcd.setCursor(0, 1);
+    String msg = "R:" + String(risk) + "% " + mlResult;
+    lcd.print(msg.substring(0, 16));
   }
-
-  HTTPClient http;
-  http.begin(serverUrl);
-  http.addHeader("Content-Type", "application/json");
-
-  String payload = "{";
-  payload += "\"nodeId\":\"NODE-001\",";
-  payload += "\"dustbin\":" + String(dust < 0 ? 0 : dust) + ",";
-  payload += "\"drainage\":" + String(drain < 0 ? 0 : drain) + ",";
-  payload += "\"gas\":" + String(gas) + ",";
-  payload += "\"waterLeak\":\"" + String(waterLeak ? "YES" : "NO") + "\",";
-  payload += "\"weight\":" + String(weight < 0 ? 0 : weight, 2) + ",";
-  payload += "\"turbidity\":" + String(turbNTU, 0) + ",";
-  payload += "\"waterQuality\":\"" + waterQual + "\"";
-  payload += "}";
-
-  Serial.println("📤 Sending: " + payload);
-
-  int code = http.POST(payload);
-  Serial.printf("📥 Server Response: %d\n", code);
-  http.end();
 }
 
 /* ================= SETUP ================= */
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  
+  lcd.init();
+  lcd.backlight();
+  updateLCD("UrbanPulse", "R4 WiFi Booting");
 
-  Serial.println("=============================");
-  Serial.println("  UrbanPulse Sensor Node");
-  Serial.println("  NODE-001 Booting...");
-  Serial.println("=============================");
+  dht.begin();
+  pinMode(PIR_PIN, INPUT);
+  ss.begin(GPSBaud);
 
-  // Pin modes
-  pinMode(TRIG_DUST, OUTPUT);
-  pinMode(ECHO_DUST, INPUT);
-  pinMode(TRIG_DRAIN, OUTPUT);
-  pinMode(ECHO_DRAIN, INPUT);
-  pinMode(WATER_PIN, INPUT);
-  pinMode(GAS_PIN, INPUT);
-  pinMode(LED_PIN, OUTPUT);
-  // GPIO 34 is input-only, no pinMode needed
-
-  // HX711 Init
-  Serial.println("⚖️ Initializing HX711...");
-  scale.begin(HX711_DT, HX711_SCK);
-  scale.set_scale(calibrationFactor);
-  scale.tare();
-  Serial.println("✅ Scale ready (tared)");
-
-  // WiFi
   connectWiFi();
-
-  Serial.println("=============================");
-  Serial.println("  System Ready — Loop Start");
-  Serial.println("=============================\n");
+  delay(1000);
 }
 
 /* ================= LOOP ================= */
 
 void loop() {
-  // --- Read all sensors ---
-  int dustDist  = readUltrasonic(TRIG_DUST, ECHO_DUST);
-  delay(50);
-  int drainDist = readUltrasonic(TRIG_DRAIN, ECHO_DRAIN);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int soundVal = analogRead(SOUND_PIN);
+  bool motion = digitalRead(PIR_PIN);
 
-  int gasValue   = analogRead(GAS_PIN);
-  bool waterLeak = digitalRead(WATER_PIN);
-  float weight   = readWeight();
+  while (ss.available() > 0)
+    gps.encode(ss.read());
 
-  // Turbidity
-  float turbNTU = readTurbidity();
-  String waterQual = getWaterQuality(turbNTU);
-
-  // --- Serial Output ---
-  Serial.println("--- Sensor Reading ---");
-  Serial.printf("🗑️ Dustbin Distance : %d cm\n", dustDist < 0 ? 0 : dustDist);
-  Serial.printf("🔵 Drain Distance   : %d cm\n", drainDist < 0 ? 0 : drainDist);
-  Serial.printf("💨 Gas Value        : %d\n", gasValue);
-  Serial.printf("💧 Water Leak       : %s\n", waterLeak ? "YES" : "NO");
-  Serial.printf("⚖️ Weight           : %.2f g\n", weight < 0 ? 0.0 : weight);
-  Serial.print("🔬 Turbidity        : ");
-  Serial.print(turbNTU, 0);
-  Serial.print(" NTU — ");
-  Serial.println(waterQual);
-
-  // --- Alert LED ---
-  bool alert =
-    (dustDist > 0 && dustDist < 8) ||
-    (drainDist > 0 && drainDist < 5) ||
-    (gasValue > 2200) ||
-    waterLeak ||
-    (weight > 5000) ||
-    (turbNTU > 1500);
-
-  digitalWrite(LED_PIN, alert ? HIGH : LOW);
-
-  if (alert) {
-    Serial.println("🚨 ALERT TRIGGERED!");
+  // Update LCD Line 1 with live sensor data
+  if (!isnan(h) && !isnan(t)) {
+    lcd.setCursor(0, 0);
+    lcd.print("T:" + String(t, 1) + "C H:" + String(h, 0) + "%      ");
   }
 
-  // --- Send to Server ---
-  sendToServer(dustDist, drainDist, gasValue, waterLeak, weight, turbNTU, waterQual);
+  if (millis() - lastPollTime > pollInterval) {
+    sendSensorData(t, h, soundVal, motion);
+    pollLatestResult();
+    lastPollTime = millis();
+  }
 
-  Serial.println("----------------------\n");
-  delay(5000);
+  delay(500);
 }
