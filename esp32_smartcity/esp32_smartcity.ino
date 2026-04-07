@@ -30,8 +30,8 @@ SoftwareSerial ss(RXPin, TXPin);
 
 /* ================= NETWORK CONFIG ================= */
 
-char ssid[] = "Apna Net Khud Bharwao Yaar"; // your network SSID
-char pass[] = "j6izw7as";                  // your network password
+char ssid[] = "Apna net khud bharwao"; // your network SSID
+char pass[] = "Leum9932";                  // your network password
 
 char serverAddress[] = "10.44.53.60";      // Laptop IP
 int port = 3000;
@@ -55,13 +55,44 @@ void updateLCD(String line1, String line2) {
 }
 
 void connectWiFi() {
+  Serial.println("\n📡 Initializing WiFi...");
   updateLCD("WiFi Connecting", ssid);
-  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  
+  WiFi.begin(ssid, pass);
+  int attempts = 0;
+
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(1000);
+    int status = WiFi.status();
+    Serial.print("Attempt ");
+    Serial.print(attempts + 1);
+    Serial.print(": Status ");
+    Serial.print(status);
+
+    // Human-readable status mapping
+    switch (status) {
+      case WL_NO_SHIELD:       Serial.println(" (No WiFi Shield Found)"); break;
+      case WL_IDLE_STATUS:     Serial.println(" (Idle - Waiting)"); break;
+      case WL_NO_SSID_AVAIL:   Serial.println(" (Network NOT Found - Check SSID)"); break;
+      case WL_SCAN_COMPLETED:  Serial.println(" (Scan Completed)"); break;
+      case WL_CONNECT_FAILED:  Serial.println(" (Connection Failed - Check Password)"); break;
+      case WL_CONNECTION_LOST: Serial.println(" (Connection Lost)"); break;
+      case WL_DISCONNECTED:    Serial.println(" (Disconnected)"); break;
+      default:                 Serial.println(" (Unknown Status)"); break;
+    }
+    
+    attempts++;
   }
-  Serial.println("\n✅ WiFi Connected!");
-  updateLCD("UrbanPulse LIVE", WiFi.localIP().toString());
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ WiFi Connected!");
+    Serial.print("📡 IP: ");
+    Serial.println(WiFi.localIP());
+    updateLCD("UrbanPulse LIVE", WiFi.localIP().toString());
+  } else {
+    Serial.println("\n❌ WiFi Failed! Please check your SSID/Password.");
+    updateLCD("WiFi FAILED", "Check Router");
+  }
 }
 
 void sendSensorData(float temp, float humid, int sound, bool motion) {
